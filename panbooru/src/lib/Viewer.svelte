@@ -12,22 +12,44 @@
 		ontag: (tag: string, event: MouseEvent) => void;
 	} = $props();
 	let tagsOpen = $state(false);
+	let albumName = $state('');
 
 	function onkeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') onclose();
+	}
+
+	function postBody() {
+		return {
+			remoteId: post.id,
+			tags: post.tags,
+			width: post.width,
+			height: post.height,
+			mediaRef: post.mediaRef
+		};
 	}
 
 	async function favorite() {
 		await fetch('/api/library/favorites', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				remoteId: post.id,
-				tags: post.tags,
-				width: post.width,
-				height: post.height,
-				mediaRef: post.mediaRef
-			})
+			body: JSON.stringify(postBody())
+		});
+	}
+
+	async function addToAlbum() {
+		const name = albumName.trim();
+		if (!name) return;
+		const created = await fetch('/api/library/albums', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ name })
+		});
+		if (!created.ok) return;
+		const body = (await created.json()) as { data: { id: string } };
+		await fetch(`/api/library/albums/${body.data.id}/items`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(postBody())
 		});
 	}
 </script>
@@ -54,6 +76,13 @@
 		aria-label="Sidebar edge"
 		onpointerenter={() => (viewerChrome.edge = true)}
 	></div>
+	<div class="album-add">
+		<label>
+			Album name
+			<input bind:value={albumName} />
+		</label>
+		<button type="button" onclick={addToAlbum}>Add to album</button>
+	</div>
 </div>
 
 <style>
@@ -137,5 +166,19 @@
 		bottom: 0;
 		left: 0;
 		width: 28px;
+	}
+
+	.album-add {
+		position: absolute;
+		z-index: 8;
+		left: 36px;
+		bottom: 18px;
+		display: flex;
+		gap: 8px;
+		align-items: end;
+	}
+
+	.album-add label {
+		color: #dddde3;
 	}
 </style>

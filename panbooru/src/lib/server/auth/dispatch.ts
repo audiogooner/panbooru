@@ -209,7 +209,7 @@ export async function dispatch(request: Request, services: AppServices): Promise
 	const url = new URL(request.url);
 	if (request.method === 'GET' && url.pathname === '/health') return null;
 
-	if (request.method === 'POST' && !sameOrigin(request)) {
+	if ((request.method === 'POST' || request.method === 'DELETE') && !sameOrigin(request)) {
 		return jsonError('FORBIDDEN', 'Cross-origin request rejected', 403);
 	}
 

@@ -68,4 +68,36 @@ test('a favorited fixture post is shown from the saved file', async ({ page }) =
 	await page.reload();
 	await expect(page.getByRole('img')).toHaveCount(1);
 	await expect(page.getByRole('img')).toHaveAttribute('src', /\/api\/library\/originals\//);
+
+	await openLandscape(page);
+	const added = page.waitForResponse(
+		(response) =>
+			response.url().includes('/api/library/albums/') &&
+			response.url().includes('/items') &&
+			response.ok()
+	);
+	await page.getByLabel('Album name').fill('Night');
+	await page.getByRole('button', { name: 'Add to album' }).click();
+	await added;
+
+	await page.goto('/albums');
+	await page.getByRole('link', { name: 'Night' }).click();
+	const albumImage = page.getByRole('img');
+	await expect(albumImage).toHaveCount(1);
+	await expect(albumImage).toHaveAttribute('src', /\/api\/library\/originals\//);
+
+	await page.goto('/favorites');
+	await page.getByRole('button', { name: 'Remove favorite' }).click();
+	await expect(page.getByText('No favorites yet.')).toBeVisible();
+	await expect(page.getByRole('img')).toHaveCount(0);
+
+	await page.goto('/albums');
+	await page.getByRole('link', { name: 'Night' }).click();
+	await expect(page.getByRole('img')).toHaveCount(1);
+
+	await page.getByRole('button', { name: 'Remove from album' }).click();
+	await expect(page.getByRole('img')).toHaveCount(0);
+	await page.goto('/favorites');
+	await expect(page.getByText('No favorites yet.')).toBeVisible();
+	await expect(page.getByRole('img')).toHaveCount(0);
 });

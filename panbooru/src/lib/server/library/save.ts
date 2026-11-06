@@ -1,14 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import {
 	albumItems,
+	albums,
 	favorites,
 	jobs,
 	mediaObjects,
 	postSnapshots,
 	savedItems
 } from '#lib/server/db/schema.ts';
+import { removeAlbumMembership, unfavorite, type SavedPost } from '#lib/server/library/retention.ts';
 
 export type PostMetadata = {
 	source: string;
@@ -131,6 +135,24 @@ export type FavoritePost = {
 	height: number;
 };
 
+function viewOf(row: { id: string; snapshot: string }): FavoritePost {
+	const snapshot = JSON.parse(row.snapshot) as {
+		tags?: unknown;
+		width?: unknown;
+		height?: unknown;
+	};
+	const tags = Array.isArray(snapshot.tags)
+		? snapshot.tags.filter((tag): tag is string => typeof tag === 'string')
+		: [];
+	return {
+		id: row.id,
+		tags: tags.join(' '),
+		src: `/api/library/originals/${row.id}`,
+		width: Number(snapshot.width ?? 0),
+		height: Number(snapshot.height ?? 0)
+	};
+}
+
 export function listFavorites(db: AppDatabase): FavoritePost[] {
 	const rows = db.$client
 		.prepare(
@@ -141,23 +163,39 @@ export function listFavorites(db: AppDatabase): FavoritePost[] {
 			 order by favorites.favorited_at, saved_items.id`
 		)
 		.all() as { id: string; snapshot: string }[];
-	return rows.map((row) => {
-		const snapshot = JSON.parse(row.snapshot) as {
-			tags?: unknown;
-			width?: unknown;
-			height?: unknown;
-		};
-		const tags = Array.isArray(snapshot.tags)
-			? snapshot.tags.filter((tag): tag is string => typeof tag === 'string')
-			: [];
-		return {
-			id: row.id,
-			tags: tags.join(' '),
-			src: `/api/library/originals/${row.id}`,
-			width: Number(snapshot.width ?? 0),
-			height: Number(snapshot.height ?? 0)
-		};
-	});
+	return rows.map(viewOf);
+}
+
+export function createAlbum(db: AppDatabase, name: string, now = Date.now()) {
+	const id = randomUUID();
+	db.insert(albums).values({ id, name, createdAt: now }).run();
+	return { id, name };
+}
+
+export function listAlbums(db: AppDatabase) {
+	return db.$client
+		.prepare('select id, name from albums order by created_at, id')
+		.all() as { id: string; name: string }[];
+}
+
+export function getAlbum(db: AppDatabase, id: string) {
+	return db.$client.prepare('select id, name from albums where id = ?').get(id) as
+		| { id: string; name: string }
+		| undefined;
+}
+
+export function listAlbumPosts(db: AppDatabase, albumId: string): FavoritePost[] {
+	const rows = db.$client
+		.prepare(
+			`select saved_items.id as id, post_snapshots.snapshot as snapshot
+			 from album_items
+			 join saved_items on saved_items.id = album_items.item_id
+			 join post_snapshots on post_snapshots.id = saved_items.snapshot_id
+			 where album_items.album_id = ?
+			 order by album_items.added_at, saved_items.id`
+		)
+		.all(albumId) as { id: string; snapshot: string }[];
+	return rows.map(viewOf);
 }
 
 export function saveFavorite(db: AppDatabase, metadata: PostMetadata, now = Date.now()): SaveResult {
@@ -195,4 +233,83 @@ export function saveAlbumMembership(
 			original: originalState(tx, item.mediaId)
 		};
 	});
+}
+
+function membership(db: AppDatabase, itemId: string): (SavedPost & { mediaId: string | null }) | null {
+	const item = db.select().from(savedItems).where(eq(savedItems.id, itemId)).get();
+	if (!item) return null;
+	const favorite = db.select().from(favorites).where(eq(favorites.itemId, itemId)).get();
+	const rows = db.select().from(albumItems).where(eq(albumItems.itemId, itemId)).all();
+	return {
+		id: item.id,
+		favorite: Boolean(favorite),
+		albumIds: rows.map((row) => row.albumId),
+		originalId: item.mediaId ?? '',
+		mediaId: item.mediaId
+	};
+}
+
+function unreferencedPath(db: AppDatabase, mediaId: string | null) {
+	if (!mediaId) return null;
+	const used = db.$client.prepare('select id from saved_items where media_id = ?').get(mediaId);
+	if (used) return null;
+	const media = db.$client
+		.prepare('select relative_path as relativePath from media_objects where id = ?')
+		.get(mediaId) as { relativePath: string | null } | undefined;
+	db.$client.prepare('delete from media_objects where id = ?').run(mediaId);
+	const path = media?.relativePath ?? '';
+	if (!path || path.startsWith('/') || path.includes('..')) return null;
+	return path;
+}
+
+function purgeItem(db: AppDatabase, itemId: string, mediaId: string | null) {
+	db.$client.prepare('delete from jobs where item_id = ?').run(itemId);
+	db.$client.prepare('delete from album_items where item_id = ?').run(itemId);
+	db.$client.prepare('delete from favorites where item_id = ?').run(itemId);
+	db.$client.prepare('delete from post_snapshots where item_id = ?').run(itemId);
+	db.$client.prepare('update saved_items set media_id = null where id = ?').run(itemId);
+	db.$client.prepare('delete from saved_items where id = ?').run(itemId);
+	return unreferencedPath(db, mediaId);
+}
+
+function unlinkOriginal(dataDir: string, relativePath: string | null) {
+	if (!relativePath) return;
+	try {
+		unlinkSync(join(dataDir, relativePath));
+	} catch {
+		/* the file is already gone */
+	}
+}
+
+export function removeFavoriteMembership(db: AppDatabase, dataDir: string, itemId: string) {
+	const current = membership(db, itemId);
+	if (!current?.favorite) return false;
+	const decision = unfavorite(current);
+	const relativePath = db.$client.transaction(() => {
+		db.$client.prepare('delete from favorites where item_id = ?').run(itemId);
+		if (decision.post) return null;
+		return purgeItem(db, itemId, current.mediaId);
+	})();
+	unlinkOriginal(dataDir, relativePath);
+	return true;
+}
+
+export function removeAlbumMembershipRow(
+	db: AppDatabase,
+	dataDir: string,
+	albumId: string,
+	itemId: string
+) {
+	const current = membership(db, itemId);
+	if (!current?.albumIds.includes(albumId)) return false;
+	const decision = removeAlbumMembership(current, albumId);
+	const relativePath = db.$client.transaction(() => {
+		db.$client
+			.prepare('delete from album_items where album_id = ? and item_id = ?')
+			.run(albumId, itemId);
+		if (decision.post) return null;
+		return purgeItem(db, itemId, current.mediaId);
+	})();
+	unlinkOriginal(dataDir, relativePath);
+	return true;
 }
