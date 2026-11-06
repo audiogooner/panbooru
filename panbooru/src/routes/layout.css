@@ -1,0 +1,48 @@
+body {
+	margin: 0;
+	background: #0b0b0d;
+	color: #eeeeef;
+	font: 16px/1.4 sans-serif;
+}
+
+header,
+main,
+form {
+	display: grid;
+	gap: 12px;
+}
+
+header,
+main {
+	max-width: 40rem;
+	padding: 16px;
+}
+
+label {
+	display: grid;
+	gap: 4px;
+}
+
+input,
+button {
+	height: 36px;
+	border: 1px solid #29292f;
+	background: #121215;
+	color: inherit;
+}
+
+button {
+	width: fit-content;
+	padding: 0 12px;
+}
+
+img {
+	max-width: 240px;
+}
+
+ul {
+	display: grid;
+	gap: 12px;
+	padding: 0;
+	list-style: none;
+}

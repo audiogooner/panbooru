@@ -1,12 +1,19 @@
 <script lang="ts">
-	import favicon from '#lib/assets/favicon.svg';
 	import type { LayoutProps } from './$types';
+	import './layout.css';
 
-	let { children }: LayoutProps = $props();
+	let { data, children }: LayoutProps = $props();
+
+	async function logout() {
+		await fetch('/api/auth/logout', { method: 'POST' });
+		window.location.href = '/login';
+	}
 </script>
 
-<svelte:head>
-	<link rel="icon" href={favicon} />
-</svelte:head>
-
+<header>
+	<a href="/">Panbooru</a>
+	{#if data.authenticated}
+		<button type="button" onclick={logout}>Log out</button>
+	{/if}
+</header>
 {@render children()}

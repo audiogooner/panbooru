@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { once } from 'node:events';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
@@ -48,30 +49,57 @@ export function healthResponse() {
 
 export function createServices(options: StartAppOptions = {}): AppServices {
 	const config = readConfig(options);
-	void config.secretPath;
-	void config.fixtureOrigin;
+	if (config.secretPath && !existsSync(config.secretPath)) {
+		mkdirSync(dirname(config.secretPath), { recursive: true });
+		writeFileSync(config.secretPath, randomBytes(32), { mode: 0o600 });
+	}
 	for (const directory of ['media/originals', 'media/derivatives', 'cache', 'tmp']) {
 		mkdirSync(join(config.dataDir, directory), { recursive: true });
 	}
+	const fixtureOrigin = config.fixtureOrigin;
 	return {
 		db: openDatabase(config.dataDir),
 		dataDir: config.dataDir,
 		secretPath: config.secretPath,
-		fixtureOrigin: config.fixtureOrigin,
+		fixtureOrigin,
 		now: options.now ?? (() => Date.now()),
 		log: options.log ?? (() => {}),
 		limiter: new RateLimiter(),
 		secureCookie: options.secureCookie ?? false,
-		allowHosts: options.allowHosts ?? [],
+		allowHosts:
+			options.allowHosts ??
+			(process.env.PANBOORU_MEDIA_HOSTS ?? '')
+				.split(',')
+				.map((host) => host.trim())
+				.filter(Boolean),
 		lookup:
 			options.lookup ??
-			(async (hostname: string) => {
-				const answers = await lookup(hostname, { all: true, verbatim: true });
-				return answers.map((answer) => answer.address);
-			}),
-		fetchUpstream: options.fetchUpstream ?? ((input) => fetch(input)),
+			(fixtureOrigin
+				? () => ['93.184.216.34']
+				: async (hostname: string) => {
+						const answers = await lookup(hostname, { all: true, verbatim: true });
+						return answers.map((answer) => answer.address);
+					}),
+		fetchUpstream:
+			options.fetchUpstream ??
+			(fixtureOrigin
+				? async (input) => {
+						const rewritten = new URL(input.pathname + input.search, fixtureOrigin);
+						return fetch(rewritten);
+					}
+				: (input) => fetch(input)),
 		media: new Map()
 	};
+}
+
+let processServices: AppServices | undefined;
+
+export function getProcessServices() {
+	if (!processServices) {
+		processServices = createServices();
+		ensureBootstrap(processServices);
+	}
+	return processServices;
 }
 
 async function toRequest(request: IncomingMessage, origin: string) {
