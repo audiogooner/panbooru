@@ -2,11 +2,14 @@
 	import SearchField from '#lib/SearchField.svelte';
 	import Viewer from '#lib/Viewer.svelte';
 	import { justifyRows } from '#lib/justify.ts';
+	import { replaceTag } from '#lib/navigation.ts';
 	import {
 		activeView,
-		commitQuery,
+		commitNavigation,
 		hideViewer,
 		navigation,
+		popNavigation,
+		queryFromTag,
 		showPost,
 		storePosts
 	} from '#lib/explore.svelte.ts';
@@ -37,13 +40,11 @@
 		suggestions = body.data.suggestions;
 	}
 
-	async function search(draft: string) {
-		commitQuery(draft);
-		suggestions = [];
+	async function load(query: string) {
 		const response = await fetch('/api/source/gelbooru/search', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ query: draft })
+			body: JSON.stringify({ query })
 		});
 		if (!response.ok) return;
 		const body = (await response.json()) as {
@@ -53,13 +54,32 @@
 		};
 		storePosts(body.data.posts);
 	}
+
+	async function search(draft: string) {
+		suggestions = [];
+		commitNavigation(replaceTag(navigation, draft));
+		await load(draft);
+	}
+
+	async function onTag(tag: string, event: MouseEvent) {
+		suggestions = [];
+		if (queryFromTag(tag, event)) await load(activeView().query);
+	}
+
+	function onPop(event: PopStateEvent) {
+		const cursor = typeof event.state?.cursor === 'number' ? event.state.cursor : 0;
+		popNavigation(cursor);
+		void load(activeView().query);
+	}
 </script>
 
+<svelte:window onpopstate={onPop} />
+
 {#if activeView().mode === 'viewer' && currentPost}
-	<Viewer post={currentPost} onclose={hideViewer} />
+	<Viewer post={currentPost} onclose={hideViewer} ontag={onTag} />
 {:else}
 	<section class="explore">
-		{#key navigation.activeId}
+		{#key `${navigation.activeId}:${activeView().query}`}
 			<SearchField initial={activeView().query} {suggestions} oninput={suggest} onsearch={search} />
 		{/key}
 		<div class="gallery" bind:clientWidth={galleryWidth}>

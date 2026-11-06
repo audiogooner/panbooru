@@ -2,7 +2,15 @@
 	import { viewerChrome } from '#lib/explore.svelte.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
 
-	let { post, onclose }: { post: ExplorationPost; onclose: () => void } = $props();
+	let {
+		post,
+		onclose,
+		ontag
+	}: {
+		post: ExplorationPost;
+		onclose: () => void;
+		ontag: (tag: string, event: MouseEvent) => void;
+	} = $props();
 	let tagsOpen = $state(false);
 
 	function onkeydown(event: KeyboardEvent) {
@@ -20,7 +28,7 @@
 	{#if tagsOpen}
 		<ul aria-label="Post tags">
 			{#each post.tags as tag (tag)}
-				<li><button type="button">{tag}</button></li>
+				<li><button type="button" onclick={(event) => ontag(tag, event)}>{tag}</button></li>
 			{/each}
 		</ul>
 	{/if}

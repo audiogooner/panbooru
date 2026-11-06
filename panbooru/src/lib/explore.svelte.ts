@@ -1,7 +1,10 @@
 import {
+	appendTag,
+	back,
 	closeView,
 	closeViewer,
 	createNavigation,
+	forward,
 	newView,
 	openPost,
 	replaceTag,
@@ -11,6 +14,8 @@ import {
 
 export const navigation = $state(createNavigation());
 export const viewerChrome = $state({ edge: false });
+
+let historyCursor = 0;
 
 function apply(next: NavigationState) {
 	navigation.views = next.views;
@@ -36,8 +41,29 @@ export function removeView(id: string) {
 	apply(closeView(navigation, id));
 }
 
-export function commitQuery(query: string) {
-	apply(replaceTag(navigation, query));
+export function commitNavigation(next: NavigationState) {
+	apply(next);
+	historyCursor += 1;
+	history.pushState({ cursor: historyCursor }, '', location.href);
+}
+
+export function popNavigation(cursor: number) {
+	if (cursor === historyCursor) return;
+	apply(cursor < historyCursor ? back(navigation) : forward(navigation));
+	historyCursor = cursor;
+}
+
+export function branchTag(tag: string) {
+	apply(newView(navigation, tag, { background: true }));
+}
+
+export function queryFromTag(tag: string, event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean }) {
+	if (event.metaKey || event.ctrlKey || event.altKey) {
+		branchTag(tag);
+		return false;
+	}
+	commitNavigation(event.shiftKey ? appendTag(navigation, tag) : replaceTag(navigation, tag));
+	return true;
 }
 
 export function showPost(postId: string) {

@@ -99,4 +99,37 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 	await expect(page.getByText('No saved searches yet.')).toBeVisible();
 	await page.goto('/settings');
 	await expect(page.getByLabel('User ID')).toHaveValue('7');
+
+	await page.goto('/');
+	await page.getByLabel('Tags').fill('landscape');
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await expect(page.locator('.gallery img').first()).toBeVisible();
+	await page.getByLabel('Tags').fill('forest');
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await expect(page.getByLabel('Tags')).toHaveValue('forest');
+	await page.goBack();
+	await expect(page.getByLabel('Tags')).toHaveValue('landscape');
+	await expect(page.locator('.gallery img').first()).toBeVisible();
+	await page.goForward();
+	await expect(page.getByLabel('Tags')).toHaveValue('forest');
+	await expect(page.locator('.gallery img').first()).toBeVisible();
+
+	const tags = page.getByRole('list', { name: 'Post tags' });
+	await page.locator('.gallery img').first().click();
+	await page.getByRole('button', { name: 'Show tags' }).click();
+	await tags.getByRole('button', { name: 'sunset', exact: true }).click();
+	await expect(page.getByLabel('Tags')).toHaveValue('sunset');
+	await expect(page.locator('.gallery img').first()).toBeVisible();
+
+	await page.locator('.gallery img').first().click();
+	await page.getByRole('button', { name: 'Show tags' }).click();
+	await tags.getByRole('button', { name: 'landscape', exact: true }).click({ modifiers: ['Shift'] });
+	await expect(page.getByLabel('Tags')).toHaveValue('sunset landscape');
+
+	await page.locator('.gallery img').first().click();
+	await page.getByRole('button', { name: 'Show tags' }).click();
+	await tags.getByRole('button', { name: 'sunset', exact: true }).click({ modifiers: ['Meta'] });
+	await expect(nav.getByRole('button', { name: 'sunset', exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByLabel('Tags')).toHaveValue('sunset landscape');
 });
