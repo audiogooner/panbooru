@@ -47,6 +47,8 @@ export function createServices(options: StartAppOptions = {}): AppServices {
 	return {
 		db: openDatabase(config.dataDir),
 		dataDir: config.dataDir,
+		secretPath: config.secretPath,
+		fixtureOrigin: config.fixtureOrigin,
 		now: options.now ?? (() => Date.now()),
 		log: options.log ?? (() => {}),
 		limiter: new RateLimiter(),

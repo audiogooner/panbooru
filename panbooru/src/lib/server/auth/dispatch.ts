@@ -5,13 +5,17 @@ import { eq } from 'drizzle-orm';
 import { hashPassword, verifyPassword } from '#lib/server/auth/password.ts';
 import { RateLimiter } from '#lib/server/auth/rate-limit.ts';
 import { SESSION_ABSOLUTE_MS, SESSION_COOKIE, SESSION_IDLE_MS } from '#lib/server/auth/session.ts';
-import { owner, sessions } from '#lib/server/db/schema.ts';
+import { owner, sessions, sourceCredentials } from '#lib/server/db/schema.ts';
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
+import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher.ts';
+import { probeGelbooruCredentials } from '#lib/server/sources/gelbooru.ts';
 
 export type AppServices = {
 	db: AppDatabase;
 	dataDir: string;
+	secretPath?: string;
+	fixtureOrigin?: string;
 	now: () => number;
 	log: (line: string) => void;
 	limiter: RateLimiter;
@@ -189,14 +193,90 @@ export async function dispatch(request: Request, services: AppServices): Promise
 
 	if (request.method === 'GET' && url.pathname === '/api/settings/gelbooru') {
 		if (!readSession(request, services)) return jsonError('UNAUTHORIZED', 'Session required', 401);
-		return jsonData({ configured: false, validated: false });
+		const row = services.db
+			.select()
+			.from(sourceCredentials)
+			.where(eq(sourceCredentials.source, 'gelbooru'))
+			.get();
+		if (!row) return jsonData({ configured: false, validated: false });
+		return jsonData({ configured: true, validated: row.validated === 1, userId: row.userId });
 	}
 
 	if (request.method === 'POST' && url.pathname === '/api/settings/gelbooru/validate') {
 		const blocked = limited(services, 'validate');
 		if (blocked) return blocked;
 		if (!readSession(request, services)) return jsonError('UNAUTHORIZED', 'Session required', 401);
-		return jsonError('NOT_IMPLEMENTED', 'Credential validation is not available', 501);
+		const body = await readBody(request);
+		const userId = typeof body?.userId === 'string' ? body.userId : '';
+		const apiKey = typeof body?.apiKey === 'string' ? body.apiKey : '';
+		if (!userId || !apiKey || userId.length > 64 || apiKey.length > 256) {
+			return jsonError('BAD_REQUEST', 'Credentials are invalid', 400);
+		}
+		const existing = services.db
+			.select()
+			.from(sourceCredentials)
+			.where(eq(sourceCredentials.source, 'gelbooru'))
+			.get();
+		if (!services.secretPath)
+			return jsonError('SECRET_UNAVAILABLE', 'Master key is unavailable', 500);
+		if (existing) {
+			try {
+				decryptCredential(
+					{
+						ciphertext: existing.ciphertext,
+						nonce: existing.nonce,
+						tag: existing.authTag,
+						keyVersion: existing.keyVersion
+					},
+					{ keyPath: services.secretPath, associatedData: 'gelbooru:1' }
+				);
+			} catch {
+				return jsonError('SECRET_UNAVAILABLE', 'Master key is unavailable', 500);
+			}
+		}
+		const base = services.fixtureOrigin ?? 'https://gelbooru.com';
+		let accepted = false;
+		try {
+			accepted = await probeGelbooruCredentials(base, userId, apiKey, services.log);
+		} catch (error) {
+			services.log(error instanceof Error ? error.message : 'upstream request failed');
+			return jsonError('UPSTREAM_UNAVAILABLE', 'Gelbooru could not be reached', 502, true);
+		}
+		if (!accepted)
+			return jsonError('SOURCE_AUTH_REQUIRED', 'Gelbooru rejected the credentials', 502);
+		let record;
+		try {
+			record = encryptCredential(new TextEncoder().encode(apiKey), {
+				keyPath: services.secretPath,
+				associatedData: 'gelbooru:1'
+			});
+		} catch {
+			return jsonError('SECRET_UNAVAILABLE', 'Master key is unavailable', 500);
+		}
+		services.db
+			.insert(sourceCredentials)
+			.values({
+				source: 'gelbooru',
+				ciphertext: Buffer.from(record.ciphertext),
+				nonce: Buffer.from(record.nonce),
+				authTag: Buffer.from(record.tag),
+				keyVersion: record.keyVersion,
+				userId,
+				validated: 1
+			})
+			.onConflictDoUpdate({
+				target: sourceCredentials.source,
+				set: {
+					ciphertext: Buffer.from(record.ciphertext),
+					nonce: Buffer.from(record.nonce),
+					authTag: Buffer.from(record.tag),
+					keyVersion: record.keyVersion,
+					userId,
+					validated: 1
+				}
+			})
+			.run();
+		return jsonData({ configured: true, validated: true, userId });
 	}
 
 	if (url.pathname.startsWith('/api/')) {

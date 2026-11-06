@@ -23,6 +23,15 @@ create table if not exists sessions (
 	idle_expires_at integer not null,
 	revoked integer not null
 );
+create table if not exists source_credentials (
+	source text primary key,
+	ciphertext blob not null,
+	nonce blob not null,
+	auth_tag blob not null,
+	key_version integer not null,
+	user_id text not null,
+	validated integer not null
+);
 `;
 
 export function openDatabase(dataDir: string) {
