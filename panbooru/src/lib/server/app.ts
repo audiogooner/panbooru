@@ -14,7 +14,7 @@ import {
 } from '#lib/server/auth/dispatch.ts';
 import { RateLimiter } from '#lib/server/auth/rate-limit.ts';
 import { openDatabase } from '#lib/server/db/index.ts';
-import { runOriginalPass } from '#lib/server/library/worker.ts';
+import { runServiceOriginalPass } from '#lib/server/library/worker.ts';
 
 export type StartAppOptions = {
 	dataDir?: string;
@@ -99,12 +99,7 @@ export function createServices(options: StartAppOptions = {}): AppServices {
 }
 
 export function startOriginalWorker(services: AppServices) {
-	void runOriginalPass({
-		db: services.db,
-		dataDir: services.dataDir,
-		now: services.now(),
-		fetchFile: (url) => services.fetchUpstream(new URL(url))
-	}).catch((error: unknown) => {
+	void runServiceOriginalPass(services).catch((error: unknown) => {
 		services.log(error instanceof Error ? error.message : 'original worker failed');
 	});
 }

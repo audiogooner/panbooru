@@ -123,6 +123,43 @@ function originalState(tx: Writer, mediaId: string | null): 'queued' | 'ready' {
 	return media?.state === 'ready' ? 'ready' : 'queued';
 }
 
+export type FavoritePost = {
+	id: string;
+	tags: string;
+	src: string;
+	width: number;
+	height: number;
+};
+
+export function listFavorites(db: AppDatabase): FavoritePost[] {
+	const rows = db.$client
+		.prepare(
+			`select saved_items.id as id, post_snapshots.snapshot as snapshot
+			 from favorites
+			 join saved_items on saved_items.id = favorites.item_id
+			 join post_snapshots on post_snapshots.id = saved_items.snapshot_id
+			 order by favorites.favorited_at, saved_items.id`
+		)
+		.all() as { id: string; snapshot: string }[];
+	return rows.map((row) => {
+		const snapshot = JSON.parse(row.snapshot) as {
+			tags?: unknown;
+			width?: unknown;
+			height?: unknown;
+		};
+		const tags = Array.isArray(snapshot.tags)
+			? snapshot.tags.filter((tag): tag is string => typeof tag === 'string')
+			: [];
+		return {
+			id: row.id,
+			tags: tags.join(' '),
+			src: `/api/library/originals/${row.id}`,
+			width: Number(snapshot.width ?? 0),
+			height: Number(snapshot.height ?? 0)
+		};
+	});
+}
+
 export function saveFavorite(db: AppDatabase, metadata: PostMetadata, now = Date.now()): SaveResult {
 	return db.transaction((tx) => {
 		const item = ensureItem(tx, metadata, now);

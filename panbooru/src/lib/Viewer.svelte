@@ -16,6 +16,20 @@
 	function onkeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') onclose();
 	}
+
+	async function favorite() {
+		await fetch('/api/library/favorites', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				remoteId: post.id,
+				tags: post.tags,
+				width: post.width,
+				height: post.height,
+				mediaRef: post.mediaRef
+			})
+		});
+	}
 </script>
 
 <svelte:window {onkeydown} />
@@ -24,6 +38,7 @@
 	<img class="backdrop" src={`/api/media/${post.mediaRef}`} alt="" />
 	<img class="full" src={`/api/media/${post.mediaRef}`} alt={post.tags.join(' ')} />
 	<button class="back" type="button" onclick={onclose}>Back</button>
+	<button class="favorite" type="button" onclick={favorite}>Favorite</button>
 	<button class="tags" type="button" onclick={() => (tagsOpen = !tagsOpen)}>Show tags</button>
 	{#if tagsOpen}
 		<ul aria-label="Post tags">
@@ -72,7 +87,8 @@
 	}
 
 	.back,
-	.tags {
+	.tags,
+	.favorite {
 		position: absolute;
 		z-index: 8;
 		top: 18px;
@@ -80,6 +96,10 @@
 
 	.back {
 		left: 20px;
+	}
+
+	.favorite {
+		right: 124px;
 	}
 
 	.tags {

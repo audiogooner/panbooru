@@ -101,3 +101,17 @@ export async function runOriginalPass(options: OriginalPassOptions) {
 		await download(job, options);
 	}
 }
+
+export function runServiceOriginalPass(services: {
+	db: AppDatabase;
+	dataDir: string;
+	now: () => number;
+	fetchUpstream: (url: URL) => Promise<Response>;
+}) {
+	return runOriginalPass({
+		db: services.db,
+		dataDir: services.dataDir,
+		now: services.now(),
+		fetchFile: (url) => services.fetchUpstream(new URL(url))
+	});
+}

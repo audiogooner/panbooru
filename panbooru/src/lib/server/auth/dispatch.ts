@@ -10,6 +10,7 @@ import type { AppDatabase } from '#lib/server/db/index.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher.ts';
 import { probeGelbooruCredentials } from '#lib/server/sources/gelbooru.ts';
+import { handleLibrary } from '#lib/server/library/routes.ts';
 import { handleSource } from '#lib/server/sources/routes.ts';
 
 export type AppServices = {
@@ -305,13 +306,11 @@ export async function dispatch(request: Request, services: AppServices): Promise
 		return jsonData({ configured: true, validated: true, userId });
 	}
 
-	const source = await handleSource(
-		request,
-		url,
-		services,
-		Boolean(readSession(request, services))
-	);
+	const session = Boolean(readSession(request, services));
+	const source = await handleSource(request, url, services, session);
 	if (source) return source;
+	const library = await handleLibrary(request, url, services, session);
+	if (library) return library;
 
 	if (url.pathname.startsWith('/api/')) {
 		return jsonError('NOT_FOUND', 'Not found', 404);
