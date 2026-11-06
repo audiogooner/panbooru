@@ -1,11 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
+import { ensureBootstrap, dispatch, type AppServices } from '#lib/server/auth/dispatch.ts';
+import { RateLimiter } from '#lib/server/auth/rate-limit.ts';
+import { openDatabase } from '#lib/server/db/index.ts';
 
 export type StartAppOptions = {
 	dataDir?: string;
 	secretPath?: string;
 	fixtureOrigin?: string;
+	now?: () => number;
+	log?: (line: string) => void;
+	secureCookie?: boolean;
 };
 
 export type RunningApp = {
@@ -27,34 +34,77 @@ export function readConfig(options: StartAppOptions = {}) {
 }
 
 export function healthResponse() {
-	return Response.json({
-		data: { ok: true },
-		requestId: randomUUID()
-	});
+	return Response.json(
+		{ data: { ok: true }, requestId: randomUUID() },
+		{ headers: { 'cache-control': 'private, no-store' } }
+	);
 }
 
-export async function startApp(options: StartAppOptions = {}): Promise<RunningApp> {
+export function createServices(options: StartAppOptions = {}): AppServices {
 	const config = readConfig(options);
 	void config.secretPath;
 	void config.fixtureOrigin;
+	return {
+		db: openDatabase(config.dataDir),
+		dataDir: config.dataDir,
+		now: options.now ?? (() => Date.now()),
+		log: options.log ?? (() => {}),
+		limiter: new RateLimiter(),
+		secureCookie: options.secureCookie ?? false
+	};
+}
+
+async function toRequest(request: IncomingMessage, origin: string) {
+	const chunks: Buffer[] = [];
+	for await (const chunk of request) chunks.push(Buffer.from(chunk));
+	const method = request.method ?? 'GET';
+	const headers = new Headers();
+	for (const [key, value] of Object.entries(request.headers)) {
+		if (value === undefined) continue;
+		if (Array.isArray(value)) {
+			for (const item of value) headers.append(key, item);
+		} else {
+			headers.set(key, value);
+		}
+	}
+	return new Request(new URL(request.url ?? '/', origin), {
+		method,
+		headers,
+		body: method === 'GET' || method === 'HEAD' ? undefined : Buffer.concat(chunks)
+	});
+}
+
+function writeResponse(
+	response: import('node:http').ServerResponse,
+	result: Response,
+	bytes: Buffer
+) {
+	const headers: [string, string][] = [];
+	result.headers.forEach((value, key) => {
+		if (key !== 'set-cookie') headers.push([key, value]);
+	});
+	for (const setCookie of result.headers.getSetCookie()) headers.push(['set-cookie', setCookie]);
+	response.writeHead(result.status, headers);
+	response.end(bytes);
+}
+
+export async function startApp(options: StartAppOptions = {}): Promise<RunningApp> {
+	const services = createServices(options);
+	ensureBootstrap(services);
 
 	const server = createServer(async (request, response) => {
-		const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+		const origin = `http://${request.headers.host ?? '127.0.0.1'}`;
+		const webRequest = await toRequest(request, origin);
+		const url = new URL(webRequest.url);
 		const result =
 			request.method === 'GET' && url.pathname === '/health'
 				? healthResponse()
-				: Response.json(
-						{
-							code: 'NOT_FOUND',
-							message: 'Not found',
-							retryable: false,
-							requestId: randomUUID()
-						},
+				: ((await dispatch(webRequest, services)) ??
+					Response.json(
+						{ code: 'NOT_FOUND', message: 'Not found', retryable: false, requestId: randomUUID() },
 						{ status: 404 }
-					);
-		const bytes = Buffer.from(await result.arrayBuffer());
-		response.writeHead(result.status, Object.fromEntries(result.headers));
-		response.end(bytes);
+					));
+		writeResponse(response, result, Buffer.from(await result.arrayBuffer()));
 	});
 
 	server.listen(0, '127.0.0.1');
