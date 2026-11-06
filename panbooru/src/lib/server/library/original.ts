@@ -13,6 +13,7 @@ export type PromoteRequest = {
 	mime: string;
 	expectedBytes: number;
 	expectedHash: string;
+	afterTempWrite?: () => void;
 };
 
 export type PromoteResult = {
@@ -34,6 +35,7 @@ export function promoteOriginal(request: PromoteRequest): PromoteResult {
 		unlinkSync(tempPath);
 		return notReady;
 	}
+	request.afterTempWrite?.();
 
 	const relativePath = join('media', 'originals', hash);
 	const finalPath = join(request.dataDir, relativePath);
