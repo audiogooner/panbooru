@@ -10,6 +10,7 @@ import type { AppDatabase } from '#lib/server/db/index.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher.ts';
 import { probeGelbooruCredentials } from '#lib/server/sources/gelbooru.ts';
+import { handleSource } from '#lib/server/sources/routes.ts';
 
 export type AppServices = {
 	db: AppDatabase;
@@ -20,6 +21,10 @@ export type AppServices = {
 	log: (line: string) => void;
 	limiter: RateLimiter;
 	secureCookie: boolean;
+	allowHosts: readonly string[];
+	lookup: (hostname: string) => readonly string[] | Promise<readonly string[]>;
+	fetchUpstream: (input: URL) => Promise<Response>;
+	media: Map<string, string>;
 };
 
 const minimumPassword = 12;
@@ -278,6 +283,14 @@ export async function dispatch(request: Request, services: AppServices): Promise
 			.run();
 		return jsonData({ configured: true, validated: true, userId });
 	}
+
+	const source = await handleSource(
+		request,
+		url,
+		services,
+		Boolean(readSession(request, services))
+	);
+	if (source) return source;
 
 	if (url.pathname.startsWith('/api/')) {
 		return jsonError('NOT_FOUND', 'Not found', 404);

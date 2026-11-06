@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import { once } from 'node:events';
+import { mkdirSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
+import { join } from 'node:path';
 import { ensureBootstrap, dispatch, type AppServices } from '#lib/server/auth/dispatch.ts';
 import { RateLimiter } from '#lib/server/auth/rate-limit.ts';
 import { openDatabase } from '#lib/server/db/index.ts';
@@ -13,6 +16,9 @@ export type StartAppOptions = {
 	now?: () => number;
 	log?: (line: string) => void;
 	secureCookie?: boolean;
+	allowHosts?: readonly string[];
+	lookup?: (hostname: string) => readonly string[] | Promise<readonly string[]>;
+	fetchUpstream?: (input: URL) => Promise<Response>;
 };
 
 export type RunningApp = {
@@ -44,6 +50,9 @@ export function createServices(options: StartAppOptions = {}): AppServices {
 	const config = readConfig(options);
 	void config.secretPath;
 	void config.fixtureOrigin;
+	for (const directory of ['media/originals', 'media/derivatives', 'cache', 'tmp']) {
+		mkdirSync(join(config.dataDir, directory), { recursive: true });
+	}
 	return {
 		db: openDatabase(config.dataDir),
 		dataDir: config.dataDir,
@@ -52,7 +61,16 @@ export function createServices(options: StartAppOptions = {}): AppServices {
 		now: options.now ?? (() => Date.now()),
 		log: options.log ?? (() => {}),
 		limiter: new RateLimiter(),
-		secureCookie: options.secureCookie ?? false
+		secureCookie: options.secureCookie ?? false,
+		allowHosts: options.allowHosts ?? [],
+		lookup:
+			options.lookup ??
+			(async (hostname: string) => {
+				const answers = await lookup(hostname, { all: true, verbatim: true });
+				return answers.map((answer) => answer.address);
+			}),
+		fetchUpstream: options.fetchUpstream ?? ((input) => fetch(input)),
+		media: new Map()
 	};
 }
 
