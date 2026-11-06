@@ -58,6 +58,31 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 	await expect(image).toHaveAttribute('src', /\/api\/media\//);
 	await expect(nav.getByRole('button', { name: 'landscape sunset' })).toBeVisible();
 
+	const mediaSrc = await image.getAttribute('src');
+	await image.click();
+	await expect(page.locator('.gallery img')).toHaveCount(0);
+	const viewerImage = page.locator('.viewer .full');
+	await expect(viewerImage).toBeVisible();
+	await expect(viewerImage).toHaveAttribute('src', mediaSrc ?? '');
+	await expect(page.locator('.viewer .backdrop')).toHaveAttribute('src', mediaSrc ?? '');
+	await page.getByRole('button', { name: 'Show tags' }).click();
+	await expect(page.getByRole('list', { name: 'Post tags' })).toContainText('sunset');
+	await expect(page.getByRole('separator', { name: 'Resize details' })).toBeVisible();
+	const hiddenSidebar = await nav.boundingBox();
+	expect(hiddenSidebar?.x ?? 0).toBeLessThan(0);
+	await page.locator('.edge-left').hover();
+	await expect
+		.poll(async () => (await nav.boundingBox())?.x ?? -1)
+		.toBeGreaterThanOrEqual(0);
+
+	await page.keyboard.press('Escape');
+	await expect(page.locator('.gallery img').first()).toBeVisible();
+	await expect(page.getByLabel('Tags')).toHaveValue('landscape sunset');
+	await page.locator('.gallery img').first().click();
+	await page.getByRole('button', { name: 'Back', exact: true }).click();
+	await expect(page.getByLabel('Tags')).toHaveValue('landscape sunset');
+	await expect(page.locator('.gallery img').first()).toBeVisible();
+
 	await nav.getByRole('button', { name: 'New search' }).click();
 	await expect(nav.getByRole('button', { name: 'Untitled search' })).toBeVisible();
 	await expect(nav.getByRole('button', { name: 'landscape sunset' })).toBeVisible();

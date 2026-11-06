@@ -1,12 +1,23 @@
 <script lang="ts">
 	import SearchField from '#lib/SearchField.svelte';
+	import Viewer from '#lib/Viewer.svelte';
 	import { justifyRows } from '#lib/justify.ts';
-	import { activeView, commitQuery, navigation, storePosts } from '#lib/explore.svelte.ts';
+	import {
+		activeView,
+		commitQuery,
+		hideViewer,
+		navigation,
+		showPost,
+		storePosts
+	} from '#lib/explore.svelte.ts';
 
 	let galleryWidth = $state(960);
 	let suggestions = $state<{ name: string; count: number }[]>([]);
 
 	let rows = $derived(justifyRows(activeView().posts, Math.max(galleryWidth, 320), 190));
+	let currentPost = $derived(
+		activeView().posts.find((post) => post.id === activeView().postId) ?? null
+	);
 
 	async function suggest(value: string) {
 		const pattern = value.split(/\s+/).at(-1) ?? '';
@@ -44,27 +55,33 @@
 	}
 </script>
 
-<section class="explore">
-	{#key navigation.activeId}
-		<SearchField initial={activeView().query} {suggestions} oninput={suggest} onsearch={search} />
-	{/key}
-	<div class="gallery" bind:clientWidth={galleryWidth}>
-		{#each rows as row, index (index)}
-			<div class="row">
-				{#each row as post (post.id)}
-					<img
-						src={`/api/media/${post.mediaRef}`}
-						alt={post.tags.join(' ')}
-						width={Math.round(post.width)}
-						height={Math.round(post.height)}
-						style:width="{post.width}px"
-						style:height="{post.height}px"
-					/>
-				{/each}
-			</div>
-		{/each}
-	</div>
-</section>
+{#if activeView().mode === 'viewer' && currentPost}
+	<Viewer post={currentPost} onclose={hideViewer} />
+{:else}
+	<section class="explore">
+		{#key navigation.activeId}
+			<SearchField initial={activeView().query} {suggestions} oninput={suggest} onsearch={search} />
+		{/key}
+		<div class="gallery" bind:clientWidth={galleryWidth}>
+			{#each rows as row, index (index)}
+				<div class="row">
+					{#each row as post (post.id)}
+						<button type="button" onclick={() => showPost(post.id)}>
+							<img
+								src={`/api/media/${post.mediaRef}`}
+								alt={post.tags.join(' ')}
+								width={Math.round(post.width)}
+								height={Math.round(post.height)}
+								style:width="{post.width}px"
+								style:height="{post.height}px"
+							/>
+						</button>
+					{/each}
+				</div>
+			{/each}
+		</div>
+	</section>
+{/if}
 
 <style>
 	.explore {
@@ -80,6 +97,14 @@
 	.row {
 		display: flex;
 		gap: 4px;
+	}
+
+	button {
+		width: auto;
+		height: auto;
+		padding: 0;
+		border: 0;
+		background: transparent;
 	}
 
 	img {

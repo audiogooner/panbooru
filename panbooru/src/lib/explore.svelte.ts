@@ -1,13 +1,16 @@
 import {
 	closeView,
+	closeViewer,
 	createNavigation,
 	newView,
+	openPost,
 	replaceTag,
 	type ExplorationPost,
 	type NavigationState
 } from '#lib/navigation.ts';
 
 export const navigation = $state(createNavigation());
+export const viewerChrome = $state({ edge: false });
 
 function apply(next: NavigationState) {
 	navigation.views = next.views;
@@ -35,6 +38,16 @@ export function removeView(id: string) {
 
 export function commitQuery(query: string) {
 	apply(replaceTag(navigation, query));
+}
+
+export function showPost(postId: string) {
+	viewerChrome.edge = false;
+	apply(openPost(navigation, postId));
+}
+
+export function hideViewer() {
+	viewerChrome.edge = false;
+	apply(closeViewer(navigation));
 }
 
 export function storePosts(posts: ExplorationPost[]) {
