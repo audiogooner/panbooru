@@ -29,6 +29,86 @@ export type AppServices = {
 
 const minimumPassword = 12;
 
+export async function saveGelbooruCredentials(
+	services: AppServices,
+	userId: string,
+	apiKey: string
+) {
+	const existing = services.db
+		.select()
+		.from(sourceCredentials)
+		.where(eq(sourceCredentials.source, 'gelbooru'))
+		.get();
+	if (!services.secretPath) return 'unavailable' as const;
+	if (existing) {
+		try {
+			decryptCredential(
+				{
+					ciphertext: existing.ciphertext,
+					nonce: existing.nonce,
+					tag: existing.authTag,
+					keyVersion: existing.keyVersion
+				},
+				{ keyPath: services.secretPath, associatedData: 'gelbooru:1' }
+			);
+		} catch {
+			return 'unavailable' as const;
+		}
+	}
+	const base = services.fixtureOrigin ?? 'https://gelbooru.com';
+	let accepted = false;
+	try {
+		accepted = await probeGelbooruCredentials(base, userId, apiKey, services.log);
+	} catch (error) {
+		services.log(error instanceof Error ? error.message : 'upstream request failed');
+		return 'rejected' as const;
+	}
+	if (!accepted) return 'rejected' as const;
+	let record;
+	try {
+		record = encryptCredential(new TextEncoder().encode(apiKey), {
+			keyPath: services.secretPath,
+			associatedData: 'gelbooru:1'
+		});
+	} catch {
+		return 'unavailable' as const;
+	}
+	services.db
+		.insert(sourceCredentials)
+		.values({
+			source: 'gelbooru',
+			ciphertext: Buffer.from(record.ciphertext),
+			nonce: Buffer.from(record.nonce),
+			authTag: Buffer.from(record.tag),
+			keyVersion: record.keyVersion,
+			userId,
+			validated: 1
+		})
+		.onConflictDoUpdate({
+			target: sourceCredentials.source,
+			set: {
+				ciphertext: Buffer.from(record.ciphertext),
+				nonce: Buffer.from(record.nonce),
+				authTag: Buffer.from(record.tag),
+				keyVersion: record.keyVersion,
+				userId,
+				validated: 1
+			}
+		})
+		.run();
+	return 'saved' as const;
+}
+
+export async function applyEnvCredentials(services: AppServices) {
+	const userId = process.env.PANBOORU_GELBOORU_USER_ID?.trim() ?? '';
+	const apiKey = process.env.PANBOORU_GELBOORU_API_KEY?.trim() ?? '';
+	if (!userId || !apiKey) return;
+	const saved = await saveGelbooruCredentials(services, userId, apiKey);
+	services.log(
+		saved === 'saved' ? 'gelbooru credentials validated' : 'gelbooru credentials were not validated'
+	);
+}
+
 export function ensureBootstrap(services: AppServices) {
 	const existing = services.db.select().from(owner).get();
 	if (existing) return;
@@ -217,70 +297,11 @@ export async function dispatch(request: Request, services: AppServices): Promise
 		if (!userId || !apiKey || userId.length > 64 || apiKey.length > 256) {
 			return jsonError('BAD_REQUEST', 'Credentials are invalid', 400);
 		}
-		const existing = services.db
-			.select()
-			.from(sourceCredentials)
-			.where(eq(sourceCredentials.source, 'gelbooru'))
-			.get();
-		if (!services.secretPath)
+		const saved = await saveGelbooruCredentials(services, userId, apiKey);
+		if (saved === 'unavailable')
 			return jsonError('SECRET_UNAVAILABLE', 'Master key is unavailable', 500);
-		if (existing) {
-			try {
-				decryptCredential(
-					{
-						ciphertext: existing.ciphertext,
-						nonce: existing.nonce,
-						tag: existing.authTag,
-						keyVersion: existing.keyVersion
-					},
-					{ keyPath: services.secretPath, associatedData: 'gelbooru:1' }
-				);
-			} catch {
-				return jsonError('SECRET_UNAVAILABLE', 'Master key is unavailable', 500);
-			}
-		}
-		const base = services.fixtureOrigin ?? 'https://gelbooru.com';
-		let accepted = false;
-		try {
-			accepted = await probeGelbooruCredentials(base, userId, apiKey, services.log);
-		} catch (error) {
-			services.log(error instanceof Error ? error.message : 'upstream request failed');
-			return jsonError('UPSTREAM_UNAVAILABLE', 'Gelbooru could not be reached', 502, true);
-		}
-		if (!accepted)
+		if (saved === 'rejected')
 			return jsonError('SOURCE_AUTH_REQUIRED', 'Gelbooru rejected the credentials', 502);
-		let record;
-		try {
-			record = encryptCredential(new TextEncoder().encode(apiKey), {
-				keyPath: services.secretPath,
-				associatedData: 'gelbooru:1'
-			});
-		} catch {
-			return jsonError('SECRET_UNAVAILABLE', 'Master key is unavailable', 500);
-		}
-		services.db
-			.insert(sourceCredentials)
-			.values({
-				source: 'gelbooru',
-				ciphertext: Buffer.from(record.ciphertext),
-				nonce: Buffer.from(record.nonce),
-				authTag: Buffer.from(record.tag),
-				keyVersion: record.keyVersion,
-				userId,
-				validated: 1
-			})
-			.onConflictDoUpdate({
-				target: sourceCredentials.source,
-				set: {
-					ciphertext: Buffer.from(record.ciphertext),
-					nonce: Buffer.from(record.nonce),
-					authTag: Buffer.from(record.tag),
-					keyVersion: record.keyVersion,
-					userId,
-					validated: 1
-				}
-			})
-			.run();
 		return jsonData({ configured: true, validated: true, userId });
 	}
 

@@ -1,8 +1,9 @@
 import type { Handle } from '@sveltejs/kit/hooks';
-import { getProcessServices, healthResponse } from '#lib/server/app.ts';
+import { healthResponse, prepareProcessServices, getProcessServices } from '#lib/server/app.ts';
 import { dispatch, readSession } from '#lib/server/auth/dispatch.ts';
 
 export const handle: Handle = async ({ event, resolve }) => {
+	await prepareProcessServices();
 	const services = getProcessServices();
 	event.locals.authenticated = Boolean(readSession(event.request, services));
 	if (event.request.method === 'GET' && event.url.pathname === '/health') {

@@ -6,7 +6,12 @@ import { dirname } from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
-import { ensureBootstrap, dispatch, type AppServices } from '#lib/server/auth/dispatch.ts';
+import {
+	applyEnvCredentials,
+	ensureBootstrap,
+	dispatch,
+	type AppServices
+} from '#lib/server/auth/dispatch.ts';
 import { RateLimiter } from '#lib/server/auth/rate-limit.ts';
 import { openDatabase } from '#lib/server/db/index.ts';
 
@@ -94,11 +99,22 @@ export function createServices(options: StartAppOptions = {}): AppServices {
 
 let processServices: AppServices | undefined;
 
-export function getProcessServices() {
-	if (!processServices) {
-		processServices = createServices();
-		ensureBootstrap(processServices);
+let preparing: Promise<void> | undefined;
+
+export function prepareProcessServices() {
+	if (!preparing) {
+		preparing = (async () => {
+			const services = createServices();
+			ensureBootstrap(services);
+			await applyEnvCredentials(services);
+			processServices = services;
+		})();
 	}
+	return preparing;
+}
+
+export function getProcessServices() {
+	if (!processServices) throw new Error('services are not ready');
 	return processServices;
 }
 
@@ -139,6 +155,7 @@ function writeResponse(
 export async function startApp(options: StartAppOptions = {}): Promise<RunningApp> {
 	const services = createServices(options);
 	ensureBootstrap(services);
+	await applyEnvCredentials(services);
 
 	const server = createServer(async (request, response) => {
 		const origin = `http://${request.headers.host ?? '127.0.0.1'}`;
