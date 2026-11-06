@@ -1,8 +1,38 @@
 body {
 	margin: 0;
-	background: #0b0b0d;
-	color: #eeeeef;
-	font: 16px/1.4 sans-serif;
+	background: #0c0d10;
+	color: #dddde3;
+	font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.app {
+	display: flex;
+	height: 100vh;
+	overflow: hidden;
+}
+
+.content {
+	flex: 1;
+	min-width: 0;
+	overflow: auto;
+}
+
+.empty-page {
+	display: grid;
+	align-content: center;
+	justify-items: center;
+	min-height: 45vh;
+	gap: 12px;
+}
+
+.empty-page h1 {
+	margin: 0;
+	font-size: 25px;
+	font-weight: 530;
+}
+
+.empty-page p {
+	color: #717a8b;
 }
 
 header,

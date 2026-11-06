@@ -1,47 +1,91 @@
 <script lang="ts">
-	type Post = { id: string; tags: string[]; mediaRef: string };
-	let query = $state('');
-	let posts = $state<Post[]>([]);
-	let error = $state('');
+	import SearchField from '#lib/SearchField.svelte';
+	import { justifyRows } from '#lib/justify.ts';
+	import { activeView, commitQuery, navigation, storePosts } from '#lib/explore.svelte.ts';
 
-	async function search(event: SubmitEvent) {
-		event.preventDefault();
-		error = '';
+	let galleryWidth = $state(960);
+	let suggestions = $state<{ name: string; count: number }[]>([]);
+
+	let rows = $derived(justifyRows(activeView().posts, Math.max(galleryWidth, 320), 190));
+
+	async function suggest(value: string) {
+		const pattern = value.split(/\s+/).at(-1) ?? '';
+		if (pattern.length < 2) {
+			suggestions = [];
+			return;
+		}
+		const response = await fetch('/api/source/gelbooru/autocomplete', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ pattern })
+		});
+		if (!response.ok) return;
+		const body = (await response.json()) as {
+			data: { suggestions: { name: string; count: number }[] };
+		};
+		suggestions = body.data.suggestions;
+	}
+
+	async function search(draft: string) {
+		commitQuery(draft);
+		suggestions = [];
 		const response = await fetch('/api/source/gelbooru/search', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ query })
+			body: JSON.stringify({ query: draft })
 		});
-		if (!response.ok) {
-			error = 'Search failed';
-			return;
-		}
-		const body = (await response.json()) as { data: { posts: Post[] } };
-		posts = body.data.posts;
+		if (!response.ok) return;
+		const body = (await response.json()) as {
+			data: {
+				posts: { id: string; tags: string[]; width: number; height: number; mediaRef: string }[];
+			};
+		};
+		storePosts(body.data.posts);
 	}
 </script>
 
-<main>
-	<form onsubmit={search}>
-		<label>
-			Tags
-			<input name="tags" bind:value={query} />
-		</label>
-		<button type="submit">Search</button>
-	</form>
-	{#if error}
-		<p role="alert">{error}</p>
-	{/if}
-	<ul>
-		{#each posts as post (post.id)}
-			<li>
-				<img
-					src={`/api/media/${post.mediaRef}`}
-					alt={post.tags.join(' ')}
-					width="100"
-					height="50"
-				/>
-			</li>
+<section class="explore">
+	{#key navigation.activeId}
+		<SearchField initial={activeView().query} {suggestions} oninput={suggest} onsearch={search} />
+	{/key}
+	<div class="gallery" bind:clientWidth={galleryWidth}>
+		{#each rows as row, index (index)}
+			<div class="row">
+				{#each row as post (post.id)}
+					<img
+						src={`/api/media/${post.mediaRef}`}
+						alt={post.tags.join(' ')}
+						width={Math.round(post.width)}
+						height={Math.round(post.height)}
+						style:width="{post.width}px"
+						style:height="{post.height}px"
+					/>
+				{/each}
+			</div>
 		{/each}
-	</ul>
-</main>
+	</div>
+</section>
+
+<style>
+	.explore {
+		min-height: 100%;
+		padding: 16px 26px 24px;
+	}
+
+	.gallery {
+		display: grid;
+		gap: 4px;
+	}
+
+	.row {
+		display: flex;
+		gap: 4px;
+	}
+
+	img {
+		max-width: none;
+		object-fit: cover;
+		border-radius: 13px;
+		background: #191e25;
+	}
+</style>

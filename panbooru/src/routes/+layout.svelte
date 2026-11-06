@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { LayoutProps } from './$types';
+	import Sidebar from '#lib/Sidebar.svelte';
 	import './layout.css';
 
 	let { data, children }: LayoutProps = $props();
@@ -10,10 +11,13 @@
 	}
 </script>
 
-<header>
-	<a href="/">Panbooru</a>
-	{#if data.authenticated}
-		<button type="button" onclick={logout}>Log out</button>
-	{/if}
-</header>
-{@render children()}
+{#if data.authenticated}
+	<div class="app">
+		<Sidebar onlogout={logout} />
+		<div class="content">
+			{@render children()}
+		</div>
+	</div>
+{:else}
+	{@render children()}
+{/if}

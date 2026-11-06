@@ -42,9 +42,36 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 	await expect(page.getByText('Credentials saved')).toBeVisible();
 
 	await page.goto('/');
+	const nav = page.getByRole('navigation', { name: 'Main navigation' });
+	await expect(page.getByText('Panbooru').first()).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'New search' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Untitled search' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Albums' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Favorites' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Saved searches' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Settings' })).toBeVisible();
+
 	await page.getByLabel('Tags').fill('landscape sunset');
-	await page.getByRole('button', { name: 'Search' }).click();
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
 	const image = page.getByRole('img').first();
 	await expect(image).toBeVisible();
 	await expect(image).toHaveAttribute('src', /\/api\/media\//);
+	await expect(nav.getByRole('button', { name: 'landscape sunset' })).toBeVisible();
+
+	await nav.getByRole('button', { name: 'New search' }).click();
+	await expect(nav.getByRole('button', { name: 'Untitled search' })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'landscape sunset' })).toBeVisible();
+	await expect(page.getByRole('img')).toHaveCount(0);
+
+	await nav.getByRole('link', { name: 'Albums' }).click();
+	await expect(page.getByRole('heading', { name: 'Albums' })).toBeVisible();
+	await expect(page.getByText('No albums yet.')).toBeVisible();
+	await page.goto('/favorites');
+	await expect(page.getByRole('heading', { name: 'Favorites' })).toBeVisible();
+	await expect(page.getByText('No favorites yet.')).toBeVisible();
+	await page.goto('/saved');
+	await expect(page.getByRole('heading', { name: 'Saved searches' })).toBeVisible();
+	await expect(page.getByText('No saved searches yet.')).toBeVisible();
+	await page.goto('/settings');
+	await expect(page.getByLabel('User ID')).toHaveValue('7');
 });
