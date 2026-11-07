@@ -21,6 +21,7 @@ export type PostMetadata = {
 	width: number;
 	height: number;
 	fileUrl: string;
+	rating?: string;
 };
 
 export type SaveResult = {
@@ -61,7 +62,8 @@ function snapshotOf(metadata: PostMetadata) {
 		tags: [...metadata.tags].sort(),
 		width: metadata.width,
 		height: metadata.height,
-		fileUrl: canonicalFileUrl(metadata.fileUrl)
+		fileUrl: canonicalFileUrl(metadata.fileUrl),
+		...(metadata.rating ? { rating: metadata.rating } : {})
 	});
 }
 

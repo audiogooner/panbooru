@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, type AppDatabase } from '#lib/server/db/index.ts';
-import { saveAlbumMembership, saveFavorite, type PostMetadata } from '#lib/server/library/save.ts';
+import {
+	metadataHash,
+	saveAlbumMembership,
+	saveFavorite,
+	type PostMetadata
+} from '#lib/server/library/save.ts';
 
 const metadata: PostMetadata = {
 	source: 'gelbooru',
@@ -104,6 +109,24 @@ describe('library save transaction', () => {
 		expect(snapshot).not.toContain('?');
 		expect(snapshot).toContain('https://cdn.fixture.test/images/a.jpg');
 		expect(snapshot).toContain('sunset');
+		db.$client.close();
+	});
+
+	it('stores the rating on the snapshot and leaves the metadata hash unchanged when only the rating differs', async () => {
+		const db = await database();
+		const explicit = { ...metadata, rating: 'explicit' };
+		const general = { ...metadata, rating: 'general' };
+		expect(metadataHash(explicit)).toBe(metadataHash(metadata));
+		expect(metadataHash(general)).toBe(metadataHash(explicit));
+		saveFavorite(db, explicit);
+		saveFavorite(db, general);
+		expect(count(db, 'saved_items')).toBe(1);
+		expect(count(db, 'post_snapshots')).toBe(1);
+		const row = db.$client.prepare('select snapshot from post_snapshots').get() as {
+			snapshot: string;
+		};
+		const snapshot = JSON.parse(row.snapshot) as { rating?: string };
+		expect(snapshot.rating).toBe('explicit');
 		db.$client.close();
 	});
 });

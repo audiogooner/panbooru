@@ -24,7 +24,8 @@
 			tags: post.tags,
 			width: post.width,
 			height: post.height,
-			mediaRef: post.mediaRef
+			mediaRef: post.mediaRef,
+			...(post.rating ? { rating: post.rating } : {})
 		};
 	}
 

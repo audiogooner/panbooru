@@ -6,6 +6,7 @@ export type ExplorationPost = {
 	height: number;
 	tags: string[];
 	mediaRef: string;
+	rating?: string;
 };
 
 export type ExplorationView = {

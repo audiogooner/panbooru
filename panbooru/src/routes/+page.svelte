@@ -49,7 +49,14 @@
 		if (!response.ok) return;
 		const body = (await response.json()) as {
 			data: {
-				posts: { id: string; tags: string[]; width: number; height: number; mediaRef: string }[];
+				posts: {
+					id: string;
+					tags: string[];
+					width: number;
+					height: number;
+					mediaRef: string;
+					rating?: string;
+				}[];
 			};
 		};
 		storePosts(body.data.posts);

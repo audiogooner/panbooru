@@ -41,6 +41,7 @@ async function readMetadata(request: Request, services: AppServices): Promise<Po
 		width?: unknown;
 		height?: unknown;
 		mediaRef?: unknown;
+		rating?: unknown;
 	} | null;
 	const remoteId = typeof body?.remoteId === 'string' ? body.remoteId : '';
 	const mediaRef = typeof body?.mediaRef === 'string' ? body.mediaRef : '';
@@ -49,9 +50,18 @@ async function readMetadata(request: Request, services: AppServices): Promise<Po
 		: [];
 	const width = Number(body?.width);
 	const height = Number(body?.height);
+	const rating = typeof body?.rating === 'string' ? body.rating.trim() : '';
 	const fileUrl = services.media.get(mediaRef);
 	if (!remoteId || !fileUrl || !Number.isFinite(width) || !Number.isFinite(height)) return null;
-	return { source: 'gelbooru', remoteId, tags, width, height, fileUrl };
+	return {
+		source: 'gelbooru',
+		remoteId,
+		tags,
+		width,
+		height,
+		fileUrl,
+		...(rating ? { rating } : {})
+	};
 }
 
 async function finishSave(
