@@ -99,7 +99,8 @@ export function toCheckpointView(view: ExplorationView): CheckpointView {
 				query: view.applied.query,
 				rating: [...view.applied.rating],
 				media: [...view.applied.media],
-				sort: view.applied.sort
+				sort: view.applied.sort,
+				...(view.applied.seed !== undefined ? { seed: view.applied.seed } : {})
 			}
 		: undefined;
 	return {
@@ -146,7 +147,8 @@ export function explorationViews(views: readonly CheckpointView[]): ExplorationV
 						query: view.applied.query,
 						rating: [...view.applied.rating],
 						media: [...view.applied.media],
-						sort: view.applied.sort
+						sort: view.applied.sort,
+						...(view.applied.seed !== undefined ? { seed: view.applied.seed } : {})
 					}
 				}
 			: {})
@@ -287,7 +289,8 @@ function appliedFrom(value: unknown): AppliedView | undefined {
 		query: value.query,
 		rating: [...value.rating],
 		media: [...value.media],
-		sort: value.sort
+		sort: value.sort,
+		...(typeof value.seed === 'number' && Number.isFinite(value.seed) ? { seed: value.seed } : {})
 	};
 }
 

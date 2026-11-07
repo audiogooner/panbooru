@@ -12,7 +12,7 @@
 		savedPosition,
 		writePlaybackPreference
 	} from '#lib/playback.ts';
-	import { neighborPrefetch } from '#lib/prefetch.ts';
+	import { neighborPrefetch, withRecipe } from '#lib/prefetch.ts';
 	import {
 		doubleClickZoom,
 		initialScale,
@@ -102,6 +102,17 @@
 	let favoriteFor = $state('');
 	let favoriteItemId = $state('');
 	let departing = $state<{ src: string } | null>(null);
+	// Last painted still image; stays on screen while the next post loads so navigation never flashes black.
+	let held = $state.raw<{
+		id: string;
+		src: string;
+		backdrop: string;
+		width: number;
+		height: number;
+		left: number;
+		top: number;
+		scale: number;
+	} | null>(null);
 	let tagMeta = $state<Record<string, TagMeta>>({});
 	let tagMetaPost = $state('');
 	let clickTimer = 0;
@@ -125,9 +136,14 @@
 		(manual ? viewportWidth : frameWidth) / 2 + zoom.x - (image.width * zoom.scale) / 2
 	);
 	const top = $derived(viewportHeight / 2 + zoom.y - (image.height * zoom.scale) / 2);
+	const mediaBase = $derived(imageSrc || `/api/media/${post.mediaRef}`);
 	const foreground = $derived(
 		imageSrc ||
-			`/api/media/${post.mediaRef}${needsOriginal(image, zoom.scale) ? '' : '?recipe=display'}`
+			(needsOriginal(image, zoom.scale) ? mediaBase : withRecipe(mediaBase, 'display'))
+	);
+	// Library originals only serve thumb derivatives; remote media has recipe=backdrop.
+	const blurBackdrop = $derived(
+		imageSrc ? withRecipe(mediaBase, 'thumb') : withRecipe(mediaBase, 'backdrop')
 	);
 	const dragPost = $derived<DragPost>({
 		remoteId: post.id,
@@ -142,6 +158,7 @@
 	const sequence = $derived(posts.length ? posts : [post]);
 	const index = $derived(sequence.findIndex((item) => item.id === post.id));
 	const loading = $derived(!unsupportedVideo && loadedId !== post.id);
+	const ghost = $derived(loading && held && held.id !== post.id ? held : null);
 	const canPan = $derived(
 		image.width * zoom.scale > (manual ? viewportWidth : frameWidth) + 0.5 ||
 			image.height * zoom.scale > viewportHeight + 0.5
@@ -411,6 +428,7 @@
 			departing = null;
 			return;
 		}
+		held = null;
 		onremoved?.(id);
 		window.setTimeout(() => {
 			if (departing?.src === outgoing) departing = null;
@@ -429,10 +447,39 @@
 		onmove(next.id);
 	}
 
+	function decodeUrl(src: string) {
+		return new Promise<void>((resolve) => {
+			const probe = new Image();
+			probe.decoding = 'async';
+			probe.onload = () => resolve();
+			probe.onerror = () => resolve();
+			probe.src = src;
+			if (probe.complete) resolve();
+		});
+	}
+
 	function markLoaded(event: Event) {
 		const image = event.currentTarget;
 		if (!(image instanceof HTMLImageElement) || image.dataset.post !== post.id) return;
-		loadedId = post.id;
+		const id = post.id;
+		const backdrop = blurBackdrop;
+		void (async () => {
+			await decodeUrl(backdrop);
+			if (image.dataset.post !== id || post.id !== id) return;
+			loadedId = id;
+			if (image.complete && image.naturalWidth > 0) {
+				held = {
+					id,
+					src: foreground,
+					backdrop,
+					width: Math.max(post.width, 1),
+					height: Math.max(post.height, 1),
+					left,
+					top,
+					scale: zoom.scale
+				};
+			}
+		})();
 	}
 
 	function toggleFullscreen() {
@@ -473,6 +520,7 @@
 		muted = preference.muted;
 		duration = node.duration || 0;
 		loadedId = post.id;
+		held = null;
 		const saved = savedPosition(post.id);
 		if (saved !== undefined && saved > 0) {
 			node.currentTime = Math.min(saved, Number.isFinite(node.duration) ? node.duration : saved);
@@ -715,12 +763,7 @@
 	bind:clientHeight={viewportHeight}
 	{onwheel}
 >
-	<img
-		class="backdrop"
-		src={`/api/media/${post.mediaRef}?recipe=backdrop`}
-		alt=""
-		aria-hidden="true"
-	/>
+	<img class="backdrop" src={ghost?.backdrop ?? blurBackdrop} alt="" aria-hidden="true" />
 	{#if playableVideo}
 		{#key post.id}
 			<div class="player">
@@ -775,9 +818,22 @@
 	{:else if unsupportedVideo}
 		<p class="unsupported">This file can't be played in the viewer.</p>
 	{:else}
+		{#if ghost}
+			<div
+				class="stage held"
+				aria-hidden="true"
+				style:left="{ghost.left}px"
+				style:top="{ghost.top}px"
+				style:width="{ghost.width}px"
+				style:height="{ghost.height}px"
+				style:transform="scale({ghost.scale})"
+			>
+				<img class="full" src={ghost.src} alt="" draggable="false" />
+			</div>
+		{/if}
 		{#key post.id}
 			<div
-				class={['stage', { pannable: canPan, grabbing: dragging }]}
+				class={['stage', { pannable: canPan, grabbing: dragging, ready: !loading }]}
 				role="application"
 				aria-label="Artwork"
 				data-scale={zoom.scale}
@@ -1019,6 +1075,16 @@
 		transform-origin: 0 0;
 		touch-action: none;
 		user-select: none;
+		visibility: hidden;
+	}
+
+	.stage.ready,
+	.stage.held {
+		visibility: visible;
+	}
+
+	.stage.held {
+		pointer-events: none;
 	}
 
 	.stage.pannable {
@@ -1089,6 +1155,14 @@
 		color: #dddde3;
 		pointer-events: none;
 		transform: translate(-50%, -50%);
+		/* Stay invisible for fast loads so cached switches never flash the label. */
+		animation: viewer-loading 0.15s linear 220ms backwards;
+	}
+
+	@keyframes viewer-loading {
+		from {
+			opacity: 0;
+		}
 	}
 
 	.departure {

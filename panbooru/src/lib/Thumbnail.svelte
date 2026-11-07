@@ -95,9 +95,9 @@
 		filter: blur(20px);
 		pointer-events: none;
 		transition:
-			opacity 900ms linear,
-			filter 900ms linear,
-			visibility 0s linear 900ms;
+			opacity 360ms cubic-bezier(0.16, 1, 0.3, 1),
+			filter 360ms cubic-bezier(0.16, 1, 0.3, 1),
+			visibility 0s linear 360ms;
 	}
 
 	.sharp {
@@ -107,8 +107,8 @@
 		opacity: 0;
 		filter: blur(8px);
 		transition:
-			opacity 1050ms linear,
-			filter 1050ms linear;
+			opacity 360ms cubic-bezier(0.16, 1, 0.3, 1),
+			filter 360ms cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.thumb.cover .sharp {

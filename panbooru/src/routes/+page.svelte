@@ -6,6 +6,7 @@
 	import Icon from '#lib/Icon.svelte';
 	import Thumbnail from '#lib/Thumbnail.svelte';
 	import Viewer from '#lib/Viewer.svelte';
+	import { warmPost } from '#lib/prefetch.ts';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
 	import { favoriteOutline, justifyRows, squirclePath, squircleRadius } from '#lib/justify.ts';
 	import { replaceTag } from '#lib/navigation.ts';
@@ -22,6 +23,7 @@
 		rememberResultPage,
 		rememberResultTags,
 		rememberResultsFilled,
+		persistWorkspace,
 		resultPage,
 		resultTagsFor,
 		resultsFilled,
@@ -59,6 +61,7 @@
 	const sortChoices = ['Newest', 'Oldest', 'Highest score', 'Random'] as const;
 	let galleryScope: 'exploration' | 'favorites' = 'exploration';
 	const pageSize = 20;
+	const SCROLL_PRELOAD_PX = 2800;
 
 	type Sort = (typeof sortChoices)[number];
 	type Filters = { rating: string[]; media: string[]; sort: string };
@@ -161,6 +164,25 @@
 		return `${id}\0${query}`;
 	}
 
+	function rememberAppliedFilters(query: string, filters: StoredFilters) {
+		const id = navigation.activeId;
+		navigation.views = navigation.views.map((view) =>
+			view.id === id
+				? {
+						...view,
+						applied: {
+							query,
+							rating: [...filters.rating],
+							media: [...filters.media],
+							sort: filters.sort,
+							...(filters.sort === 'Random' ? { seed: filters.seed } : {})
+						}
+					}
+				: view
+		);
+		persistWorkspace();
+	}
+
 	function filtersFor(id: string, query: string) {
 		const stored = storedFilters[viewKey(id, query)];
 		if (stored) return stored;
@@ -170,7 +192,7 @@
 				rating: [...view.applied.rating],
 				media: [...view.applied.media],
 				sort: view.applied.sort,
-				seed: 0
+				seed: view.applied.seed ?? 0
 			};
 		}
 		return defaultFilters;
@@ -293,7 +315,7 @@
 					publish();
 				});
 			}
-			if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - 900) {
+			if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - SCROLL_PRELOAD_PX) {
 				void loadMore();
 			}
 		};
@@ -323,7 +345,7 @@
 		restoreAnchor(anchor);
 		shell.overlay = scroller.scrollTop > 24;
 		acceptingGalleryScroll = true;
-		if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - 900) {
+		if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - SCROLL_PRELOAD_PX) {
 			queueMicrotask(() => {
 				void loadMore();
 			});
@@ -576,14 +598,14 @@
 		if (follow && id === requestId) await ensureFilled();
 	}
 
-	/** Keep asking for the next pid while the lookahead is still inside the loaded posts. */
+	/** Keep asking for the next pid while the viewport is still within SCROLL_PRELOAD_PX of the end of loaded posts. */
 	async function ensureFilled() {
 		await tick();
 		const view = activeView();
 		if (paging || resultsFilled(view.id) || loading || error || view.posts.length === 0) return;
 		const scroller = document.getElementById('scroll');
 		if (!scroller) return;
-		if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - 900) {
+		if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - SCROLL_PRELOAD_PX) {
 			await loadMore();
 		}
 	}
@@ -592,12 +614,13 @@
 		suggestions = [];
 		leaveSelection(navigation.activeId);
 		const sort = sortChoices.find((item) => item === filters?.sort) ?? applied.sort;
-		storedFilters[viewKey(navigation.activeId, draft)] = {
+		const nextFilters: StoredFilters = {
 			rating: filters?.rating ?? [...applied.rating],
 			media: filters?.media ?? [...applied.media],
 			sort,
 			seed: sort === 'Random' ? Math.floor(Math.random() * 10001) : 0
 		};
+		storedFilters[viewKey(navigation.activeId, draft)] = nextFilters;
 		broken = {};
 		thumbNonce = {};
 		thumbRetries.clear();
@@ -609,6 +632,7 @@
 		shell.overlay = false;
 		shell.hidden = false;
 		commitNavigation(replaceTag(navigation, draft));
+		rememberAppliedFilters(draft, nextFilters);
 		await load(draft);
 	}
 
@@ -999,12 +1023,13 @@
 		if (!queryFromTag(tag, event, anchor)) return;
 		leaveSelection(id);
 		const next = activeView().query;
-		storedFilters[viewKey(id, next)] ??= {
+		const nextFilters = (storedFilters[viewKey(id, next)] ??= {
 			rating: [...previous.rating],
 			media: [...previous.media],
 			sort: previous.sort,
 			seed: previous.seed
-		};
+		});
+		rememberAppliedFilters(next, nextFilters);
 		await load(next);
 	}
 
@@ -1130,6 +1155,8 @@
 									style:width="{width}px"
 									style:height="{height}px"
 									style:--squircle={`path('${squirclePath(width, height, squircleRadius)}')`}
+									onpointerenter={() => warmPost(post.mediaRef, post.kind)}
+									onfocusin={() => warmPost(post.mediaRef, post.kind)}
 									ondragstart={(event) => onTileDrag(event, post)}
 									oncontextmenu={(event) => onTileMenu(event, post)}
 								>

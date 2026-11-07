@@ -150,6 +150,27 @@ describe('workspace checkpoint', () => {
 		expect(restored.views.map((view) => view.applied?.sort)).toEqual(['Highest score', 'Oldest']);
 	});
 
+	it('round-trips the random sort seed on applied filters', () => {
+		const store = memoryStore();
+		saveCheckpoint(store, {
+			views: [
+				{
+					...water,
+					applied: {
+						query: 'water',
+						rating: ['Sensitive'],
+						media: ['Videos'],
+						sort: 'Random',
+						seed: 4242
+					}
+				}
+			],
+			activeId: 'water'
+		});
+		const restored = explorationViews(readCheckpoint(store)?.views ?? []);
+		expect(restored[0]?.applied).toMatchObject({ sort: 'Random', seed: 4242 });
+	});
+
 	it('leaves zoom, pan, and video position out of the checkpoint', () => {
 		const store = memoryStore();
 		saveCheckpoint(store, {

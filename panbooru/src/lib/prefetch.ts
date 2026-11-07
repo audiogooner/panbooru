@@ -3,6 +3,22 @@ import type { Attachment } from 'svelte/attachments';
 
 const warmed = new Set<string>();
 
+export function withRecipe(base: string, recipe: string) {
+	return `${base}${base.includes('?') ? '&' : '?'}recipe=${recipe}`;
+}
+
+export function warmPost(mediaRef: string, kind?: string) {
+	if (!mediaRef) return;
+	const base = `/api/media/${mediaRef}`;
+	if (kind === 'video') {
+		warm(withRecipe(base, 'display'));
+		warm(base, 'HEAD');
+		return;
+	}
+	warm(withRecipe(base, 'display'));
+	warm(withRecipe(base, 'backdrop'));
+}
+
 export function neighborPrefetch(
 	posts: ExplorationPost[],
 	id: string,
@@ -10,6 +26,7 @@ export function neighborPrefetch(
 ): Attachment {
 	return () => {
 		const at = posts.findIndex((item) => item.id === id);
+		warmNeighbor(posts[at]);
 		const offsets = direction >= 0 ? [1, -1] : [-1, 1];
 		for (const offset of offsets) warmNeighbor(posts[at + offset]);
 	};
@@ -17,14 +34,7 @@ export function neighborPrefetch(
 
 function warmNeighbor(neighbor: ExplorationPost | undefined) {
 	if (!neighbor?.mediaRef) return;
-	const base = `/api/media/${neighbor.mediaRef}`;
-	if (neighbor.kind === 'video') {
-		warm(`${base}?recipe=display`);
-		warm(base, 'HEAD');
-		return;
-	}
-	warm(`${base}?recipe=display`);
-	warm(`${base}?recipe=backdrop`);
+	warmPost(neighbor.mediaRef, neighbor.kind);
 }
 
 function warm(url: string, method: 'GET' | 'HEAD' = 'GET') {

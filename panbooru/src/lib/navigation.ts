@@ -16,6 +16,7 @@ export type AppliedView = {
 	rating: string[];
 	media: string[];
 	sort: string;
+	seed?: number;
 };
 
 /** Item id plus offset inside that item. Pixel `scroll` is only a fallback. */
@@ -32,7 +33,7 @@ export type ExplorationView = {
 	mode: ViewMode;
 	scroll: number;
 	scrollAnchor: ScrollAnchor | null;
-	/** Filters from an opened saved search. Not a server view row. */
+	/** Applied gallery filters for this view. Not a server view row. */
 	applied?: AppliedView;
 };
 

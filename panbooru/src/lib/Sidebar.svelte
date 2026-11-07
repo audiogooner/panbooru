@@ -639,7 +639,8 @@
 							query: view.applied.query,
 							rating: [...view.applied.rating],
 							media: [...view.applied.media],
-							sort: view.applied.sort
+							sort: view.applied.sort,
+							...(view.applied.seed !== undefined ? { seed: view.applied.seed } : {})
 						}
 					}
 				: {})
