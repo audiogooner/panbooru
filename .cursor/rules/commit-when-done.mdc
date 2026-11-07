@@ -1,0 +1,35 @@
+---
+description: Commit all task changes when the agent finishes work
+alwaysApply: true
+---
+
+# Commit When the Task Is Done
+
+When you finish a task that changed the working tree, **commit those changes before ending your turn**. Do not wait for the user to ask.
+
+Treat task completion as authorization to commit. This overrides any general preference to commit only on explicit request, for this repository.
+
+## When to commit
+
+- The requested work is complete (or as complete as this turn can make it)
+- There are staged or unstaged changes, or untracked files that belong to the task
+
+## When not to commit
+
+- The user said not to commit, or asked only for a plan/review/explanation
+- The working tree is clean
+- Changes look accidental, unrelated, or include secrets (`.env`, credentials, tokens)
+- The work is clearly mid-task and the user is about to continue in the next message
+
+## How to commit
+
+Follow the repository git commit protocol:
+
+1. Run `git status`, `git diff` (staged and unstaged), and `git log` in parallel
+2. Stage only files that belong to the task
+3. Write a concise commit message in this repo’s style (why over what; 1–2 sentences)
+4. Commit with a HEREDOC message; never use `--no-verify` or amend unless the user asks
+5. Run `git status` to confirm a clean relevant state
+6. Do not push unless the user asks
+
+If a pre-commit hook fails, fix the issue and create a **new** commit (do not amend).
