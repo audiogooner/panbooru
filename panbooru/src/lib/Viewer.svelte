@@ -93,6 +93,7 @@
 	let direction = $state(1);
 	let loadedId = $state('');
 	let previewId = $state('');
+	let previewCleared = $state('');
 	let paused = $state(true);
 	let elapsed = $state(0);
 	let duration = $state(0);
@@ -119,6 +120,7 @@
 	let clickTimer = 0;
 	let chromeTimer = 0;
 	let zoomTimer = 0;
+	let previewClearRaf = 0;
 	let alive = true;
 	let video: HTMLVideoElement | null = null;
 
@@ -159,7 +161,8 @@
 	const sequence = $derived(posts.length ? posts : [post]);
 	const index = $derived(sequence.findIndex((item) => item.id === post.id));
 	const loading = $derived(!unsupportedVideo && loadedId !== post.id);
-	const showPreview = $derived(loading && previewSrc !== foreground);
+	// Keep the thumb under the foreground until decode + paint, then dismiss for single-.full locators.
+	const showPreview = $derived(previewSrc !== foreground && previewCleared !== post.id);
 	const previewReady = $derived(previewId === post.id);
 	const ghost = $derived(loading && held && held.id !== post.id ? held : null);
 	const canPan = $derived(
@@ -448,7 +451,7 @@
 		const id = post.id;
 		const backdrop = blurBackdrop;
 		void (async () => {
-			await decodeUrl(backdrop);
+			await Promise.all([image.decode().catch(() => {}), decodeUrl(backdrop)]);
 			if (image.dataset.post !== id || post.id !== id) return;
 			loadedId = id;
 			if (image.complete && image.naturalWidth > 0) {
@@ -463,6 +466,14 @@
 					scale: zoom.scale
 				};
 			}
+			cancelAnimationFrame(previewClearRaf);
+			previewClearRaf = requestAnimationFrame(() => {
+				previewClearRaf = requestAnimationFrame(() => {
+					previewClearRaf = 0;
+					if (!alive || post.id !== id) return;
+					previewCleared = id;
+				});
+			});
 		})();
 	}
 
@@ -645,6 +656,8 @@
 			alive = false;
 			window.clearTimeout(chromeTimer);
 			window.clearTimeout(zoomTimer);
+			cancelAnimationFrame(previewClearRaf);
+			previewClearRaf = 0;
 			if (root === node) root = null;
 		};
 	}
@@ -821,7 +834,7 @@
 						pannable: canPan,
 						grabbing: dragging,
 						ready: !loading,
-						previewed: showPreview && previewReady
+						previewed: previewReady && loading
 					}
 				]}
 				role="application"
@@ -854,7 +867,7 @@
 					/>
 				{/if}
 				<img
-					class="full"
+					class="full foreground"
 					src={foreground}
 					alt={post.tags.join(' ')}
 					data-post={post.id}
@@ -1098,6 +1111,18 @@
 	.stage .preview {
 		position: absolute;
 		inset: 0;
+		z-index: 0;
+	}
+
+	.stage .foreground {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		opacity: 0;
+	}
+
+	.stage.ready .foreground {
+		opacity: 1;
 	}
 
 	.stage.pannable {
