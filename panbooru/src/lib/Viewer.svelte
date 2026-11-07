@@ -25,7 +25,7 @@
 
 	const DETAILS_MIN = 160;
 	const DETAILS_MAX = 560;
-	const DETAILS_PANEL = 292;
+	const DETAILS_PANEL = 282;
 	const tagGroups = [
 		['artist', 'Artist'],
 		['character', 'Character'],
@@ -1285,8 +1285,8 @@
 	.viewer-bar {
 		position: absolute;
 		z-index: 8;
-		top: 18px;
-		right: 18px;
+		top: 8px;
+		right: 8px;
 		display: flex;
 		gap: 2px;
 		padding: 5px;
@@ -1322,10 +1322,10 @@
 	.right-panel {
 		position: absolute;
 		z-index: 5;
-		top: 82px;
-		right: 18px;
-		bottom: 18px;
-		width: calc(var(--view-right) - 18px);
+		top: 72px;
+		right: 8px;
+		bottom: 8px;
+		width: calc(var(--view-right) - 8px);
 	}
 
 	.right-scroll {
