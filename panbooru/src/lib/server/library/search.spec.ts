@@ -9,7 +9,12 @@ import {
 	saveFavorite,
 	type PostMetadata
 } from '#lib/server/library/save.ts';
-import { searchAlbum, searchFavorites } from '#lib/server/library/search.ts';
+import {
+	searchAlbum,
+	searchFavorites,
+	suggestAlbum,
+	suggestFavorites
+} from '#lib/server/library/search.ts';
 
 const base: PostMetadata = {
 	source: 'gelbooru',
@@ -92,6 +97,57 @@ describe('scoped library search', () => {
 		try {
 			expect(searchFavorites(db, 'sunset', ['general']).posts).toHaveLength(1);
 			expect(searchAlbum(db, 'missing-album', 'sunset', []).posts).toEqual([]);
+			expect(calls).toEqual([]);
+		} finally {
+			globalThis.fetch = original;
+		}
+	});
+
+	it('suggests a favorite tag and omits a tag that is only on an album post', async () => {
+		const db = await database();
+		saveFavorite(db, post('1', ['sunset'], 'general'));
+		const album = createAlbum(db, 'Night');
+		saveAlbumMembership(db, post('2', ['forest'], 'general'), album.id);
+		const suggestions = suggestFavorites(db, 'sun');
+		expect(suggestions).toContainEqual({ name: 'sunset', count: 1 });
+		expect(suggestions.map((item) => item.name)).not.toContain('forest');
+	});
+
+	it('suggests an album tag and omits a tag that is only on a favorite', async () => {
+		const db = await database();
+		saveFavorite(db, post('1', ['sunset'], 'general'));
+		const album = createAlbum(db, 'Night');
+		saveAlbumMembership(db, post('2', ['forest'], 'general'), album.id);
+		const suggestions = suggestAlbum(db, album.id, 'for');
+		expect(suggestions).toContainEqual({ name: 'forest', count: 1 });
+		expect(suggestions.map((item) => item.name)).not.toContain('sunset');
+	});
+
+	it('counts the posts in that scope that have the tag', async () => {
+		const db = await database();
+		saveFavorite(db, post('1', ['sunset', 'sky'], 'general'));
+		saveFavorite(db, post('2', ['sunset'], 'sensitive'));
+		saveFavorite(db, post('3', ['sunbeam'], 'explicit'));
+		const suggestions = suggestFavorites(db, 'sun');
+		expect(suggestions).toContainEqual({ name: 'sunset', count: 2 });
+		expect(suggestions).toContainEqual({ name: 'sunbeam', count: 1 });
+		expect(suggestions.find((item) => item.name === 'sky')).toBeUndefined();
+	});
+
+	it('does not call the Gelbooru tag endpoint for suggestions', async () => {
+		const db = await database();
+		saveFavorite(db, post('1', ['sunset'], 'general'));
+		const calls: string[] = [];
+		const original = globalThis.fetch;
+		globalThis.fetch = (async (input: unknown) => {
+			calls.push(String(input));
+			return new Response('', { status: 500 });
+		}) as typeof fetch;
+		try {
+			expect(suggestFavorites(db, 'sun')).toContainEqual({ name: 'sunset', count: 1 });
+			const album = createAlbum(db, 'Night');
+			saveAlbumMembership(db, post('2', ['forest'], 'general'), album.id);
+			expect(suggestAlbum(db, album.id, 'for')).toContainEqual({ name: 'forest', count: 1 });
 			expect(calls).toEqual([]);
 		} finally {
 			globalThis.fetch = original;

@@ -11,6 +11,7 @@ import {
 	saveFavorite,
 	type PostMetadata
 } from '#lib/server/library/save.ts';
+import { suggestAlbum, suggestFavorites } from '#lib/server/library/search.ts';
 import { runServiceOriginalPass } from '#lib/server/library/worker.ts';
 
 type ReadyOriginal = {
@@ -92,11 +93,24 @@ export async function handleLibrary(
 		return finishSave(services, saveFavorite(services.db, metadata, services.now()));
 	}
 
+	if (request.method === 'GET' && url.pathname === '/api/library/favorites/suggestions') {
+		const pattern = url.searchParams.get('pattern') ?? '';
+		return jsonData({ suggestions: suggestFavorites(services.db, pattern) });
+	}
+
 	if (request.method === 'POST' && url.pathname === '/api/library/albums') {
 		const body = (await request.json().catch(() => null)) as { name?: unknown } | null;
 		const name = typeof body?.name === 'string' ? body.name.trim() : '';
 		if (!name || name.length > 80) return jsonError('BAD_REQUEST', 'Album name is invalid', 400);
 		return jsonData(createAlbum(services.db, name, services.now()));
+	}
+
+	const albumSuggestions = url.pathname.match(/^\/api\/library\/albums\/([^/]+)\/suggestions$/);
+	if (request.method === 'GET' && albumSuggestions) {
+		const albumId = decodeURIComponent(albumSuggestions[1] ?? '');
+		if (!getAlbum(services.db, albumId)) return jsonError('NOT_FOUND', 'Album was not found', 404);
+		const pattern = url.searchParams.get('pattern') ?? '';
+		return jsonData({ suggestions: suggestAlbum(services.db, albumId, pattern) });
 	}
 
 	const albumItemsPath = url.pathname.match(/^\/api\/library\/albums\/([^/]+)\/items$/);

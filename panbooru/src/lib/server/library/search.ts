@@ -90,3 +90,34 @@ export function searchAlbum(
 ): LibrarySearch {
 	return searchScope(db, { kind: 'album', albumId }, query, ratings);
 }
+
+export type TagSuggestion = { name: string; count: number };
+
+function suggestionsFor(
+	tagLists: readonly (readonly string[])[],
+	pattern: string
+): TagSuggestion[] {
+	const prefix = pattern.trim().toLowerCase();
+	if (!prefix) return [];
+	const counts = new Map<string, number>();
+	for (const tags of tagLists) {
+		for (const tag of new Set(tags)) {
+			if (tag.toLowerCase().startsWith(prefix)) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+		}
+	}
+	return [...counts.entries()]
+		.map(([name, count]) => ({ name, count }))
+		.sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+}
+
+function scopeTags(db: AppDatabase, scope: Scope) {
+	return rows(db, scope).map((row) => parsed(row).tags);
+}
+
+export function suggestFavorites(db: AppDatabase, pattern: string): TagSuggestion[] {
+	return suggestionsFor(scopeTags(db, { kind: 'favorites' }), pattern);
+}
+
+export function suggestAlbum(db: AppDatabase, albumId: string, pattern: string): TagSuggestion[] {
+	return suggestionsFor(scopeTags(db, { kind: 'album', albumId }), pattern);
+}
