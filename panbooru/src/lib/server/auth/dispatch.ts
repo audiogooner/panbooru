@@ -11,7 +11,10 @@ import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher.ts';
 import { probeGelbooruCredentials } from '#lib/server/sources/gelbooru.ts';
 import { handleLibrary } from '#lib/server/library/routes.ts';
+import { type UpstreamRequest } from '#lib/server/media/range.ts';
 import { handleSource } from '#lib/server/sources/routes.ts';
+
+export type { UpstreamRequest };
 
 export type AppServices = {
 	db: AppDatabase;
@@ -24,7 +27,7 @@ export type AppServices = {
 	secureCookie: boolean;
 	allowHosts: readonly string[];
 	lookup: (hostname: string) => readonly string[] | Promise<readonly string[]>;
-	fetchUpstream: (input: URL) => Promise<Response>;
+	fetchUpstream: (input: URL, init?: UpstreamRequest) => Promise<Response>;
 	media: Map<string, string>;
 };
 

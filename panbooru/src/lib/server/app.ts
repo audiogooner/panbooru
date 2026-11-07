@@ -10,7 +10,8 @@ import {
 	applyEnvCredentials,
 	ensureBootstrap,
 	dispatch,
-	type AppServices
+	type AppServices,
+	type UpstreamRequest
 } from '#lib/server/auth/dispatch.ts';
 import { RateLimiter } from '#lib/server/auth/rate-limit.ts';
 import { openDatabase } from '#lib/server/db/index.ts';
@@ -25,7 +26,7 @@ export type StartAppOptions = {
 	secureCookie?: boolean;
 	allowHosts?: readonly string[];
 	lookup?: (hostname: string) => readonly string[] | Promise<readonly string[]>;
-	fetchUpstream?: (input: URL) => Promise<Response>;
+	fetchUpstream?: (input: URL, init?: UpstreamRequest) => Promise<Response>;
 };
 
 export type RunningApp = {
@@ -93,12 +94,16 @@ export function createServices(options: StartAppOptions = {}): AppServices {
 					}),
 		fetchUpstream:
 			options.fetchUpstream ??
-			(fixtureOrigin
-				? async (input) => {
-						const rewritten = new URL(input.pathname + input.search, fixtureOrigin);
-						return fetch(rewritten);
-					}
-				: (input) => fetch(input)),
+			((input, init) => {
+				const target = fixtureOrigin
+					? new URL(input.pathname + input.search, fixtureOrigin)
+					: input;
+				return fetch(target, {
+					method: init?.method,
+					headers: init?.headers,
+					redirect: init?.redirect
+				});
+			}),
 		media: new Map()
 	};
 }

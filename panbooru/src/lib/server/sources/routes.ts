@@ -1,4 +1,5 @@
 import { checkDestination, checkRedirect } from '#lib/server/media/policy.ts';
+import { passThroughMedia, singleRangeHeader } from '#lib/server/media/range.ts';
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { compileRatingTags } from '#lib/server/library/rating-tags.ts';
@@ -101,23 +102,24 @@ export async function handleSource(
 			lookup: () => answers
 		});
 		if (!decision.ok) return jsonError('MEDIA_BLOCKED', 'Media host is not approved', 502);
-		const upstream = await services.fetchUpstream(new URL(target));
-		if (!checkRedirect(upstream.status).ok || upstream.status !== 200) {
+		const headers = new Headers();
+		const range = request.method === 'GET' ? singleRangeHeader(request.headers.get('range')) : null;
+		if (range) headers.set('range', range);
+		const upstream = await services.fetchUpstream(new URL(target), {
+			method: request.method,
+			headers,
+			redirect: 'manual'
+		});
+		if (!checkRedirect(upstream.status).ok) {
+			await upstream.body?.cancel();
 			return jsonError('UPSTREAM_INVALID', 'Media could not be fetched', 502);
 		}
-		const type = upstream.headers.get('content-type') ?? '';
-		if (!type.startsWith('image/') && !type.startsWith('video/')) {
-			return jsonError('UPSTREAM_INVALID', 'Media type is not supported', 502);
+		const media = passThroughMedia(request.method, upstream);
+		if (!media) {
+			await upstream.body?.cancel();
+			return jsonError('UPSTREAM_INVALID', 'Media could not be fetched', 502);
 		}
-		const bytes = Buffer.from(await upstream.arrayBuffer());
-		return new Response(request.method === 'HEAD' ? null : bytes, {
-			headers: {
-				'content-type': type,
-				'content-length': String(bytes.length),
-				'x-content-type-options': 'nosniff',
-				'cache-control': 'private, no-store'
-			}
-		});
+		return media;
 	}
 
 	return null;
