@@ -1,10 +1,10 @@
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import { matchSavedPosts } from '#lib/server/library/query.ts';
-import type { FavoritePost } from '#lib/server/library/save.ts';
+import { presentSavedPost, type FavoritePost } from '#lib/server/library/save.ts';
 
 type Scope = { kind: 'favorites' } | { kind: 'album'; albumId: string };
 
-type Row = { id: string; snapshot: string };
+type Row = { id: string; source: string; snapshot: string };
 
 export type LibrarySearch = {
 	posts: FavoritePost[];
@@ -15,7 +15,7 @@ function rows(db: AppDatabase, scope: Scope): Row[] {
 	if (scope.kind === 'favorites') {
 		return db.$client
 			.prepare(
-				`select saved_items.id as id, post_snapshots.snapshot as snapshot
+				`select saved_items.id as id, saved_items.source as source, post_snapshots.snapshot as snapshot
 				 from favorites
 				 join saved_items on saved_items.id = favorites.item_id
 				 join post_snapshots on post_snapshots.id = saved_items.snapshot_id
@@ -25,7 +25,7 @@ function rows(db: AppDatabase, scope: Scope): Row[] {
 	}
 	return db.$client
 		.prepare(
-			`select saved_items.id as id, post_snapshots.snapshot as snapshot
+			`select saved_items.id as id, saved_items.source as source, post_snapshots.snapshot as snapshot
 			 from album_items
 			 join saved_items on saved_items.id = album_items.item_id
 			 join post_snapshots on post_snapshots.id = saved_items.snapshot_id
@@ -35,25 +35,11 @@ function rows(db: AppDatabase, scope: Scope): Row[] {
 		.all(scope.albumId) as Row[];
 }
 
-function parsed(row: Row) {
-	const snapshot = JSON.parse(row.snapshot) as {
-		tags?: unknown;
-		width?: unknown;
-		height?: unknown;
-		rating?: unknown;
-	};
-	const tags = Array.isArray(snapshot.tags)
-		? snapshot.tags.filter((tag): tag is string => typeof tag === 'string')
-		: [];
+function parsed(db: AppDatabase, row: Row) {
+	const snapshot = JSON.parse(row.snapshot) as { rating?: unknown };
+	const post = presentSavedPost(db, row);
 	const rating = typeof snapshot.rating === 'string' && snapshot.rating ? snapshot.rating : null;
-	const post: FavoritePost = {
-		id: row.id,
-		tags: tags.join(' '),
-		src: `/api/library/originals/${row.id}`,
-		width: Number(snapshot.width ?? 0),
-		height: Number(snapshot.height ?? 0)
-	};
-	return { post, tags, rating };
+	return { post, tags: post.tagList.map((tag) => tag.name), rating };
 }
 
 function searchScope(
@@ -62,7 +48,7 @@ function searchScope(
 	query: string,
 	ratings: readonly string[]
 ): LibrarySearch {
-	const loaded = rows(db, scope).map(parsed);
+	const loaded = rows(db, scope).map((row) => parsed(db, row));
 	const matched = matchSavedPosts(
 		loaded.map((item) => ({ item, tags: item.tags, rating: item.rating })),
 		query,
@@ -111,7 +97,7 @@ function suggestionsFor(
 }
 
 function scopeTags(db: AppDatabase, scope: Scope) {
-	return rows(db, scope).map((row) => parsed(row).tags);
+	return rows(db, scope).map((row) => parsed(db, row).tags);
 }
 
 export function suggestFavorites(db: AppDatabase, pattern: string): TagSuggestion[] {

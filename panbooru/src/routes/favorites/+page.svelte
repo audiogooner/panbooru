@@ -49,7 +49,16 @@
 		<ul class="saved">
 			{#each data.favorites as item (item.id)}
 				<li>
-					<img src={item.src} alt={item.tags} width={item.width} height={item.height} />
+					{#if item.availability === 'unavailable'}
+						<p>Unavailable</p>
+					{:else if item.availability === 'ready'}
+						<img src={item.src} alt={item.tags} width={item.width} height={item.height} />
+					{/if}
+					<ul aria-label="Classifications">
+						{#each item.tagList as tag (tag.name)}
+							<li data-category={tag.category}>{tag.name}</li>
+						{/each}
+					</ul>
 					<button type="button" onclick={() => removeFavorite(item.id)}>Remove favorite</button>
 				</li>
 			{/each}
@@ -77,5 +86,30 @@
 		display: block;
 		border-radius: 13px;
 		background: #191e25;
+	}
+
+	ul ul {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	[data-category='artist'] {
+		color: #e07a9a;
+	}
+
+	[data-category='character'] {
+		color: #7ec8a3;
+	}
+
+	[data-category='copyright'] {
+		color: #7ea3e0;
+	}
+
+	[data-category='metadata'] {
+		color: #d4b36a;
 	}
 </style>

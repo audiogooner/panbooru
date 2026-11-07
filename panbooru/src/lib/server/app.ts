@@ -14,7 +14,7 @@ import {
 } from '#lib/server/auth/dispatch.ts';
 import { RateLimiter } from '#lib/server/auth/rate-limit.ts';
 import { openDatabase } from '#lib/server/db/index.ts';
-import { runServiceOriginalPass } from '#lib/server/library/worker.ts';
+import { reconcileOriginals, runServiceOriginalPass } from '#lib/server/library/worker.ts';
 
 export type StartAppOptions = {
 	dataDir?: string;
@@ -104,6 +104,7 @@ export function createServices(options: StartAppOptions = {}): AppServices {
 }
 
 export function startOriginalWorker(services: AppServices) {
+	reconcileOriginals(services.db, services.dataDir, services.now());
 	void runServiceOriginalPass(services).catch((error: unknown) => {
 		services.log(error instanceof Error ? error.message : 'original worker failed');
 	});

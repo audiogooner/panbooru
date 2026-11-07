@@ -29,7 +29,7 @@ export function expireRemovals(db: AppDatabase, dataDir: string, now: number) {
 		.all(now) as { itemId: string }[];
 	const paths = db.$client.transaction(() => {
 		db.$client.prepare('delete from removal_actions where expires_at <= ?').run(now);
-		return purgeUnretained(
+		return unretainedPaths(
 			db,
 			expired.map((row) => row.itemId)
 		);
@@ -56,7 +56,7 @@ export function recordHold(db: AppDatabase, entries: HeldMembership[], now: numb
 		}
 	}
 	const held = new Set(entries.map((entry) => entry.itemId));
-	return purgeUnretained(
+	return unretainedPaths(
 		db,
 		previous.map((row) => row.itemId).filter((itemId) => !held.has(itemId))
 	);
@@ -96,7 +96,7 @@ export function undoRemoval(db: AppDatabase, dataDir: string, actionId: string, 
 	return true;
 }
 
-function purgeUnretained(db: AppDatabase, itemIds: string[]) {
+export function unretainedPaths(db: AppDatabase, itemIds: string[]) {
 	const paths: string[] = [];
 	for (const itemId of new Set(itemIds)) {
 		const favorite = db.$client.prepare('select 1 from favorites where item_id = ?').get(itemId);

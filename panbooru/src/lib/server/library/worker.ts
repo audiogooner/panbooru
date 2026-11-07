@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import { promoteOriginal } from '#lib/server/library/original.ts';
 
@@ -50,6 +52,16 @@ function markRetry(db: AppDatabase, id: string, now: number, error: string) {
 		.run(now + retryDelayMs, error, id);
 }
 
+function markFailed(db: AppDatabase, id: string, error: string) {
+	db.$client
+		.prepare(
+			`update jobs
+			 set state = 'failed', lease_until = null, next_attempt_at = null, error = ?
+			 where id = ?`
+		)
+		.run(error, id);
+}
+
 function markSucceeded(db: AppDatabase, id: string) {
 	db.$client
 		.prepare(
@@ -66,6 +78,10 @@ async function download(job: ClaimedJob, options: OriginalPassOptions) {
 		response = await options.fetchFile(job.fileUrl);
 	} catch {
 		markRetry(options.db, job.id, options.now, 'download failed');
+		return;
+	}
+	if (response.status === 404 || response.status === 410) {
+		markFailed(options.db, job.id, 'unavailable');
 		return;
 	}
 	const bytes = Buffer.from(await response.arrayBuffer());
@@ -92,6 +108,29 @@ async function download(job: ClaimedJob, options: OriginalPassOptions) {
 		return;
 	}
 	markSucceeded(options.db, job.id);
+}
+
+export function reconcileOriginals(db: AppDatabase, dataDir: string, now: number) {
+	const tempDir = join(dataDir, 'tmp');
+	if (existsSync(tempDir)) {
+		for (const name of readdirSync(tempDir)) {
+			if (!name.startsWith('original-')) continue;
+			try {
+				unlinkSync(join(tempDir, name));
+			} catch {
+				/* a replaced temp file is already gone */
+			}
+		}
+	}
+	db.$client
+		.prepare(
+			`update jobs
+			 set state = 'retry', lease_until = null
+			 where kind = 'original'
+			 	and state = 'leased'
+			 	and (lease_until is null or lease_until <= ?)`
+		)
+		.run(now);
 }
 
 export async function runOriginalPass(options: OriginalPassOptions) {

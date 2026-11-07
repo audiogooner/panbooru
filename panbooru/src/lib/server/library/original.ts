@@ -1,5 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	unlinkSync,
+	writeFileSync
+} from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { AppDatabase } from '#lib/server/db/index.ts';
@@ -26,10 +33,20 @@ const notReady: PromoteResult = { ready: false, mediaId: null, relativePath: nul
 
 export function promoteOriginal(request: PromoteRequest): PromoteResult {
 	const tempDir = join(request.dataDir, 'tmp');
-	mkdirSync(tempDir, { recursive: true });
 	const tempPath = join(tempDir, `original-${randomUUID()}`);
-	writeFileSync(tempPath, request.body);
-	const written = readFileSync(tempPath);
+	let written: Buffer;
+	try {
+		mkdirSync(tempDir, { recursive: true });
+		writeFileSync(tempPath, request.body);
+		written = readFileSync(tempPath);
+	} catch {
+		try {
+			unlinkSync(tempPath);
+		} catch {
+			/* the partial file is already gone */
+		}
+		return notReady;
+	}
 	const hash = createHash('sha256').update(written).digest('hex');
 	if (written.length !== request.expectedBytes || hash !== request.expectedHash) {
 		unlinkSync(tempPath);
@@ -39,18 +56,18 @@ export function promoteOriginal(request: PromoteRequest): PromoteResult {
 
 	const relativePath = join('media', 'originals', hash);
 	const finalPath = join(request.dataDir, relativePath);
-	mkdirSync(join(request.dataDir, 'media', 'originals'), { recursive: true });
-	if (existsSync(finalPath)) unlinkSync(tempPath);
-	else renameSync(tempPath, finalPath);
+	try {
+		mkdirSync(join(request.dataDir, 'media', 'originals'), { recursive: true });
+		if (existsSync(finalPath)) unlinkSync(tempPath);
+		else renameSync(tempPath, finalPath);
+	} catch {
+		return notReady;
+	}
 
 	const mediaId = request.db.transaction((tx) => {
 		const item = tx.select().from(savedItems).where(eq(savedItems.id, request.itemId)).get();
 		if (!item) throw new Error('saved item was not found');
-		const existing = tx
-			.select()
-			.from(mediaObjects)
-			.where(eq(mediaObjects.contentHash, hash))
-			.get();
+		const existing = tx.select().from(mediaObjects).where(eq(mediaObjects.contentHash, hash)).get();
 		const id = existing?.id ?? randomUUID();
 		if (existing) {
 			tx.update(mediaObjects)

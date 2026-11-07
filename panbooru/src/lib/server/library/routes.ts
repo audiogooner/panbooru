@@ -4,6 +4,7 @@ import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import {
 	createAlbum,
+	deleteAlbumRecord,
 	getAlbum,
 	removeMemberships,
 	saveAlbumMembership,
@@ -65,16 +66,17 @@ async function readMetadata(request: Request, services: AppServices): Promise<Po
 	};
 }
 
-async function finishSave(
+function finishSave(
 	services: AppServices,
 	saved: { itemId: string; membership: 'favorite' | 'album'; original: 'queued' | 'ready' }
 ) {
-	await runServiceOriginalPass(services);
-	const ready = readyOriginal(services, saved.itemId);
+	void runServiceOriginalPass(services).catch((error: unknown) => {
+		services.log(error instanceof Error ? error.message : 'original worker failed');
+	});
 	return jsonData({
 		itemId: saved.itemId,
 		membership: saved.membership,
-		original: ready ? 'ready' : saved.original
+		original: saved.original
 	});
 }
 
@@ -103,6 +105,17 @@ export async function handleLibrary(
 		const name = typeof body?.name === 'string' ? body.name.trim() : '';
 		if (!name || name.length > 80) return jsonError('BAD_REQUEST', 'Album name is invalid', 400);
 		return jsonData(createAlbum(services.db, name, services.now()));
+	}
+
+	const albumRecord = url.pathname.match(/^\/api\/library\/albums\/([^/]+)$/);
+	if (request.method === 'DELETE' && albumRecord) {
+		const removed = deleteAlbumRecord(
+			services.db,
+			services.dataDir,
+			decodeURIComponent(albumRecord[1] ?? '')
+		);
+		if (!removed) return jsonError('NOT_FOUND', 'Album was not found', 404);
+		return jsonData({ removed: true });
 	}
 
 	const albumSuggestions = url.pathname.match(/^\/api\/library\/albums\/([^/]+)\/suggestions$/);

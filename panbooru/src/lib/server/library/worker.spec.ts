@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, type AppDatabase } from '#lib/server/db/index.ts';
-import { saveFavorite, type PostMetadata } from '#lib/server/library/save.ts';
-import { ORIGINAL_LEASE_MS, runOriginalPass } from '#lib/server/library/worker.ts';
+import { searchFavorites } from '#lib/server/library/search.ts';
+import { listFavorites, saveFavorite, type PostMetadata } from '#lib/server/library/save.ts';
+import {
+	ORIGINAL_LEASE_MS,
+	reconcileOriginals,
+	runOriginalPass
+} from '#lib/server/library/worker.ts';
 
 const metadata: PostMetadata = {
 	source: 'gelbooru',
@@ -177,5 +182,97 @@ describe('original download worker', () => {
 			db.$client.prepare("select count(*) as n from media_objects where state = 'ready'").get()
 		).toEqual({ n: 1 });
 		expect(db.$client.prepare('select state from jobs').get()).toEqual({ state: 'succeeded' });
+	});
+
+	it('keeps the favorite unready when the disk rejects the write, then retries after restart', async () => {
+		const { db, dataDir } = await database();
+		saveFavorite(db, metadata);
+		const tempDir = join(dataDir, 'tmp');
+		mkdirSync(tempDir, { recursive: true });
+		chmodSync(tempDir, 0o500);
+		const now = 4_000;
+		try {
+			await runOriginalPass({
+				db,
+				dataDir,
+				now,
+				fetchFile: async () => image(body)
+			});
+		} finally {
+			chmodSync(tempDir, 0o700);
+		}
+		expect(db.$client.prepare('select state from jobs').get()).toEqual({ state: 'retry' });
+		expect(
+			db.$client.prepare("select count(*) as n from media_objects where state = 'ready'").get()
+		).toEqual({ n: 0 });
+		expect(listFavorites(db)).toHaveLength(1);
+		expect(originals(dataDir)).toEqual([]);
+
+		const orphan = join(tempDir, 'original-orphan');
+		writeFileSync(orphan, Buffer.from('partial'));
+		db.$client.prepare("update jobs set state = 'leased', lease_until = ?").run(now);
+		reconcileOriginals(db, dataDir, now + ORIGINAL_LEASE_MS);
+		expect(existsSync(orphan)).toBe(false);
+		expect(db.$client.prepare('select state from jobs').get()).toEqual({ state: 'retry' });
+		expect(
+			db.$client.prepare("select count(*) as n from media_objects where state = 'ready'").get()
+		).toEqual({ n: 0 });
+
+		await runOriginalPass({
+			db,
+			dataDir,
+			now: now + ORIGINAL_LEASE_MS,
+			fetchFile: async () => image(body)
+		});
+		expect(originals(dataDir)).toEqual([sha256(body)]);
+		expect(db.$client.prepare('select state from jobs').get()).toEqual({ state: 'succeeded' });
+	});
+
+	it('labels a deleted upstream file unavailable and does not download it again', async () => {
+		const { db, dataDir } = await database();
+		saveFavorite(db, metadata);
+		let fetches = 0;
+		const fetchFile = async () => {
+			fetches += 1;
+			return new Response('gone', { status: 404, headers: { 'content-type': 'text/plain' } });
+		};
+		await runOriginalPass({ db, dataDir, now: 6_000, fetchFile });
+		await runOriginalPass({ db, dataDir, now: 7_000, fetchFile });
+		expect(fetches).toBe(1);
+		expect(db.$client.prepare('select state, error from jobs').get()).toEqual({
+			state: 'failed',
+			error: 'unavailable'
+		});
+		expect(listFavorites(db)[0]?.availability).toBe('unavailable');
+		expect(db.$client.prepare('select count(*) as n from favorites').get()).toEqual({ n: 1 });
+		expect(db.$client.prepare('select count(*) as n from saved_items').get()).toEqual({ n: 1 });
+		expect(
+			db.$client.prepare("select count(*) as n from media_objects where state = 'ready'").get()
+		).toEqual({ n: 0 });
+	});
+
+	it('keeps a ready favorite searchable when a later pass would see the upstream file gone', async () => {
+		const { db, dataDir } = await database();
+		saveFavorite(db, metadata);
+		await runOriginalPass({
+			db,
+			dataDir,
+			now: 8_000,
+			fetchFile: async () => image(body)
+		});
+		let fetches = 0;
+		await runOriginalPass({
+			db,
+			dataDir,
+			now: 9_000,
+			fetchFile: async () => {
+				fetches += 1;
+				return new Response('gone', { status: 404 });
+			}
+		});
+		expect(fetches).toBe(0);
+		const found = searchFavorites(db, 'sunset', []);
+		expect(found.posts.map((post) => post.availability)).toEqual(['ready']);
+		expect(originals(dataDir)).toEqual([sha256(body)]);
 	});
 });

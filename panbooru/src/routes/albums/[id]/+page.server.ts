@@ -3,9 +3,11 @@ import type { PageServerLoad } from './$types';
 import { getProcessServices } from '#lib/server/app.ts';
 import { searchAlbum } from '#lib/server/library/search.ts';
 import { getAlbum, listAlbumPosts } from '#lib/server/library/save.ts';
+import { refreshSavedTags } from '#lib/server/library/tags.ts';
 
-export const load: PageServerLoad = ({ params, url }) => {
+export const load: PageServerLoad = async ({ params, url }) => {
 	const services = getProcessServices();
+	await refreshSavedTags(services);
 	const album = getAlbum(services.db, params.id);
 	if (!album) error(404, 'Album was not found');
 	const raw = url.searchParams.get('q');

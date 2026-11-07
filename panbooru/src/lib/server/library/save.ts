@@ -10,7 +10,12 @@ import {
 	postSnapshots,
 	savedItems
 } from '#lib/server/db/schema.ts';
-import { expireRemovals, recordHold, releaseHeldFiles } from '#lib/server/library/removal.ts';
+import {
+	expireRemovals,
+	recordHold,
+	releaseHeldFiles,
+	unretainedPaths
+} from '#lib/server/library/removal.ts';
 
 export type PostMetadata = {
 	source: string;
@@ -127,43 +132,86 @@ function originalState(tx: Writer, mediaId: string | null): 'queued' | 'ready' {
 	return media?.state === 'ready' ? 'ready' : 'queued';
 }
 
+export type SavedTag = {
+	name: string;
+	category: string;
+};
+
 export type FavoritePost = {
 	id: string;
 	tags: string;
+	tagList: SavedTag[];
 	src: string;
 	width: number;
 	height: number;
+	availability: 'ready' | 'queued' | 'unavailable';
 };
 
-function viewOf(row: { id: string; snapshot: string }): FavoritePost {
+type SavedRow = { id: string; source: string; snapshot: string };
+
+function tagNames(snapshot: string) {
+	const parsed = JSON.parse(snapshot) as { tags?: unknown };
+	return Array.isArray(parsed.tags)
+		? parsed.tags.filter((tag): tag is string => typeof tag === 'string')
+		: [];
+}
+
+function tagList(db: AppDatabase, source: string, names: string[]): SavedTag[] {
+	const categoryFor = db.$client.prepare(
+		'select category from source_tags where source = ? and name = ?'
+	);
+	return names.map((name) => {
+		const row = categoryFor.get(source, name) as { category: string } | undefined;
+		return { name, category: row?.category ?? 'unknown' };
+	});
+}
+
+function availabilityFor(db: AppDatabase, itemId: string): FavoritePost['availability'] {
+	const media = db.$client
+		.prepare(
+			`select media_objects.state as state
+			 from saved_items
+			 join media_objects on media_objects.id = saved_items.media_id
+			 where saved_items.id = ?`
+		)
+		.get(itemId) as { state: string } | undefined;
+	if (media?.state === 'ready') return 'ready';
+	const job = db.$client
+		.prepare('select state, error from jobs where item_id = ? and kind = ?')
+		.get(itemId, 'original') as { state: string; error: string | null } | undefined;
+	if (job?.state === 'failed' && job.error === 'unavailable') return 'unavailable';
+	return 'queued';
+}
+
+export function presentSavedPost(db: AppDatabase, row: SavedRow): FavoritePost {
 	const snapshot = JSON.parse(row.snapshot) as {
 		tags?: unknown;
 		width?: unknown;
 		height?: unknown;
 	};
-	const tags = Array.isArray(snapshot.tags)
-		? snapshot.tags.filter((tag): tag is string => typeof tag === 'string')
-		: [];
+	const names = tagNames(row.snapshot);
 	return {
 		id: row.id,
-		tags: tags.join(' '),
+		tags: names.join(' '),
+		tagList: tagList(db, row.source, names),
 		src: `/api/library/originals/${row.id}`,
 		width: Number(snapshot.width ?? 0),
-		height: Number(snapshot.height ?? 0)
+		height: Number(snapshot.height ?? 0),
+		availability: availabilityFor(db, row.id)
 	};
 }
 
 export function listFavorites(db: AppDatabase): FavoritePost[] {
 	const rows = db.$client
 		.prepare(
-			`select saved_items.id as id, post_snapshots.snapshot as snapshot
+			`select saved_items.id as id, saved_items.source as source, post_snapshots.snapshot as snapshot
 			 from favorites
 			 join saved_items on saved_items.id = favorites.item_id
 			 join post_snapshots on post_snapshots.id = saved_items.snapshot_id
 			 order by favorites.favorited_at, saved_items.id`
 		)
-		.all() as { id: string; snapshot: string }[];
-	return rows.map(viewOf);
+		.all() as SavedRow[];
+	return rows.map((row) => presentSavedPost(db, row));
 }
 
 export function createAlbum(db: AppDatabase, name: string, now = Date.now()) {
@@ -184,18 +232,35 @@ export function getAlbum(db: AppDatabase, id: string) {
 		{ id: string; name: string } | undefined;
 }
 
+export function deleteAlbumRecord(db: AppDatabase, dataDir: string, albumId: string) {
+	if (!getAlbum(db, albumId)) return false;
+	const rows = db.$client
+		.prepare('select item_id as itemId from album_items where album_id = ?')
+		.all(albumId) as { itemId: string }[];
+	const paths = db.$client.transaction(() => {
+		db.$client.prepare('delete from album_items where album_id = ?').run(albumId);
+		db.$client.prepare('delete from albums where id = ?').run(albumId);
+		return unretainedPaths(
+			db,
+			rows.map((row) => row.itemId)
+		);
+	})();
+	releaseHeldFiles(dataDir, paths);
+	return true;
+}
+
 export function listAlbumPosts(db: AppDatabase, albumId: string): FavoritePost[] {
 	const rows = db.$client
 		.prepare(
-			`select saved_items.id as id, post_snapshots.snapshot as snapshot
+			`select saved_items.id as id, saved_items.source as source, post_snapshots.snapshot as snapshot
 			 from album_items
 			 join saved_items on saved_items.id = album_items.item_id
 			 join post_snapshots on post_snapshots.id = saved_items.snapshot_id
 			 where album_items.album_id = ?
 			 order by album_items.added_at, saved_items.id`
 		)
-		.all(albumId) as { id: string; snapshot: string }[];
-	return rows.map(viewOf);
+		.all(albumId) as SavedRow[];
+	return rows.map((row) => presentSavedPost(db, row));
 }
 
 export function saveFavorite(

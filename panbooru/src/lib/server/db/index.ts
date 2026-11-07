@@ -111,6 +111,16 @@ create unique index removal_memberships_identity
 	on removal_memberships (action_id, item_id, kind, ifnull(album_id, ''));
 `;
 
+const tagMigration = `
+create table source_tags (
+	source text not null,
+	name text not null,
+	category text not null,
+	fetched_at integer not null,
+	primary key (source, name)
+);
+`;
+
 export function openDatabase(dataDir: string) {
 	const directory = join(dataDir, 'db');
 	mkdirSync(directory, { recursive: true });
@@ -138,6 +148,15 @@ export function openDatabase(dataDir: string) {
 			sqlite
 				.prepare('insert into schema_migrations (version, applied_at, checksum) values (3, ?, ?)')
 				.run(Date.now(), 'removal-v3');
+		})();
+	}
+	const tags = sqlite.prepare('select version from schema_migrations where version = 4').get();
+	if (!tags) {
+		sqlite.transaction(() => {
+			sqlite.exec(tagMigration);
+			sqlite
+				.prepare('insert into schema_migrations (version, applied_at, checksum) values (4, ?, ?)')
+				.run(Date.now(), 'source-tags-v4');
 		})();
 	}
 	return drizzle(sqlite, { schema });

@@ -12,6 +12,11 @@ const infoPath = join(infoDir, 'e2e-data-dir');
 
 const fixture = createServer((request, response) => {
 	const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+	if (url.pathname.startsWith('/images/missing')) {
+		response.writeHead(404, { 'content-type': 'text/plain' });
+		response.end('missing');
+		return;
+	}
 	if (url.pathname.startsWith('/images/')) {
 		response.writeHead(200, { 'content-type': 'image/jpeg' });
 		response.end('jpeg-bytes');
@@ -30,19 +35,31 @@ const fixture = createServer((request, response) => {
 		response.end('{"tag":[{"id":3,"name":"sunset","type":0,"count":12}]}');
 		return;
 	}
+	const tags = url.searchParams.get('tags') ?? '';
+	const missing = tags.split(/\s+/).includes('missing');
 	response.writeHead(200, { 'content-type': 'application/json' });
 	response.end(
 		JSON.stringify({
 			post: [
-				{
-					id: 10,
-					tags: 'landscape sunset',
-					file_url: 'https://cdn.fixture.test/images/a.jpg',
-					preview_url: 'https://cdn.fixture.test/images/a.jpg',
-					width: 100,
-					height: 50,
-					rating: 'general'
-				}
+				missing
+					? {
+							id: 11,
+							tags: 'missing',
+							file_url: 'https://cdn.fixture.test/images/missing.jpg',
+							preview_url: 'https://cdn.fixture.test/images/missing.jpg',
+							width: 80,
+							height: 40,
+							rating: 'general'
+						}
+					: {
+							id: 10,
+							tags: 'landscape sunset',
+							file_url: 'https://cdn.fixture.test/images/a.jpg',
+							preview_url: 'https://cdn.fixture.test/images/a.jpg',
+							width: 100,
+							height: 50,
+							rating: 'general'
+						}
 			]
 		})
 	);
