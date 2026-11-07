@@ -111,12 +111,20 @@ describe('gelbooru source and media', () => {
 		return { app, dataDir, fixture, cookie, hosts };
 	}
 
-	async function search(app: RunningApp, cookie: string, query: string) {
+	async function search(app: RunningApp, cookie: string, query: string, ratings?: string[]) {
 		return app.fetch('/api/source/gelbooru/search', {
 			method: 'POST',
 			headers: { origin: app.origin, cookie, 'content-type': 'application/json' },
-			body: JSON.stringify({ query })
+			body: JSON.stringify(ratings === undefined ? { query } : { query, ratings })
 		});
+	}
+
+	function upstreamTags(requests: string[]) {
+		const entry = [...requests]
+			.reverse()
+			.find((item) => item.includes('s=post') && item.includes('tags='));
+		if (!entry) return '';
+		return new URL(entry, 'http://127.0.0.1').searchParams.get('tags') ?? '';
 	}
 
 	it('normalizes search, posts, tags, and autocomplete', async () => {
@@ -226,5 +234,30 @@ describe('gelbooru source and media', () => {
 		);
 		expect(blockedMedia.status).toBeGreaterThanOrEqual(400);
 		expect(blockedApp.hosts).not.toContain(approvedHost);
+	});
+
+	it('sends two selected ratings as exclusions and leaves an unfiltered query unchanged', async () => {
+		const { app, cookie, fixture } = await boot();
+		const narrowed = await search(app, cookie, 'landscape', ['general', 'sensitive']);
+		expect(narrowed.status).toBe(200);
+		const tags = upstreamTags(fixture.requests);
+		expect(tags).toContain('-rating:explicit -rating:questionable');
+		expect(tags).not.toContain('rating:general');
+		expect(tags).not.toMatch(/(^|\s)or(\s|$)/);
+
+		fixture.requests.length = 0;
+		const plain = await search(app, cookie, 'landscape sunset -forest');
+		expect(plain.status).toBe(200);
+		expect(upstreamTags(fixture.requests)).toBe('landscape sunset -forest');
+	});
+
+	it('keeps score: and id: in the upstream tag text', async () => {
+		const { app, cookie, fixture } = await boot();
+		const found = await search(app, cookie, 'score:>10 id:10', ['explicit']);
+		expect(found.status).toBe(200);
+		const tags = upstreamTags(fixture.requests);
+		expect(tags).toContain('score:>10');
+		expect(tags).toContain('id:10');
+		expect(tags).toContain('rating:explicit');
 	});
 });

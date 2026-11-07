@@ -1,6 +1,7 @@
 import { checkDestination, checkRedirect } from '#lib/server/media/policy.ts';
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
+import { compileRatingTags } from '#lib/server/library/rating-tags.ts';
 import { gelbooruJson, normalizePosts, normalizeTags } from '#lib/server/sources/gelbooru.ts';
 
 function upstreamError(result: { reason: 'auth' | 'invalid' }) {
@@ -20,11 +21,19 @@ export async function handleSource(
 
 	if (request.method === 'POST' && url.pathname === '/api/source/gelbooru/search') {
 		if (!session()) return jsonError('UNAUTHORIZED', 'Session required', 401);
-		const body = (await request.json().catch(() => null)) as { query?: unknown } | null;
+		const body = (await request.json().catch(() => null)) as {
+			query?: unknown;
+			ratings?: unknown;
+		} | null;
 		const query = typeof body?.query === 'string' ? body.query : '';
+		const ratings = Array.isArray(body?.ratings)
+			? body.ratings.filter((rating): rating is string => typeof rating === 'string')
+			: [];
+		const ratingText = compileRatingTags(ratings);
+		const tags = ratingText ? `${query} ${ratingText}`.trim() : query;
 		const result = await gelbooruJson(
 			base,
-			{ s: 'post', q: 'index', tags: query, limit: '20' },
+			{ s: 'post', q: 'index', tags, limit: '20' },
 			services.fetchUpstream,
 			services.log
 		);
