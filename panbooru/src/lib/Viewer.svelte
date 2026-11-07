@@ -37,6 +37,21 @@
 		});
 	}
 
+	async function downloadOriginal() {
+		const response = await fetch(`/api/media/${post.mediaRef}?download=1`);
+		if (!response.ok) return;
+		const blob = await response.blob();
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		const match = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '');
+		link.href = url;
+		link.download = match?.[1] || 'original';
+		document.body.append(link);
+		link.click();
+		link.remove();
+		URL.revokeObjectURL(url);
+	}
+
 	async function addToAlbum() {
 		const name = albumName.trim();
 		if (!name) return;
@@ -58,9 +73,10 @@
 <svelte:window {onkeydown} />
 
 <div class="viewer">
-	<img class="backdrop" src={`/api/media/${post.mediaRef}`} alt="" />
-	<img class="full" src={`/api/media/${post.mediaRef}`} alt={post.tags.join(' ')} />
+	<img class="backdrop" src={`/api/media/${post.mediaRef}?recipe=backdrop`} alt="" />
+	<img class="full" src={`/api/media/${post.mediaRef}?recipe=display`} alt={post.tags.join(' ')} />
 	<button class="back" type="button" onclick={onclose}>Back</button>
+	<button class="download" type="button" onclick={downloadOriginal}>Download</button>
 	<button class="favorite" type="button" onclick={favorite}>Favorite</button>
 	<button class="tags" type="button" onclick={() => (tagsOpen = !tagsOpen)}>Show tags</button>
 	{#if tagsOpen}
@@ -70,7 +86,12 @@
 			{/each}
 		</ul>
 	{/if}
-	<div class="resize" role="separator" aria-orientation="vertical" aria-label="Resize details"></div>
+	<div
+		class="resize"
+		role="separator"
+		aria-orientation="vertical"
+		aria-label="Resize details"
+	></div>
 	<div
 		class="edge-left"
 		role="region"
@@ -118,10 +139,16 @@
 
 	.back,
 	.tags,
-	.favorite {
+	.favorite,
+	.download {
 		position: absolute;
 		z-index: 8;
 		top: 18px;
+	}
+
+	.download {
+		right: 220px;
+		color: #dddde3;
 	}
 
 	.back {

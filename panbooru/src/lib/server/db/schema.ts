@@ -1,4 +1,4 @@
-import { blob, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { blob, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 
 export const owner = sqliteTable('owner', {
 	singleton: integer('singleton').primaryKey(),
@@ -96,6 +96,22 @@ export const sourceTags = sqliteTable(
 		fetchedAt: integer('fetched_at').notNull()
 	},
 	(table) => [primaryKey({ columns: [table.source, table.name] })]
+);
+
+export const derivatives = sqliteTable(
+	'derivatives',
+	{
+		id: text('id').primaryKey(),
+		sourceIdentity: text('source_identity').notNull(),
+		recipe: text('recipe').notNull(),
+		width: integer('width').notNull(),
+		height: integer('height').notNull(),
+		format: text('format').notNull(),
+		relativePath: text('relative_path').notNull(),
+		byteSize: integer('byte_size').notNull(),
+		label: text('label')
+	},
+	(table) => [unique('derivatives_source_recipe').on(table.sourceIdentity, table.recipe)]
 );
 
 export const jobs = sqliteTable('jobs', {

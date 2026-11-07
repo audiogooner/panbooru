@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileMediaResponse } from '#lib/server/media/range.ts';
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import {
@@ -53,7 +53,7 @@ async function readMetadata(request: Request, services: AppServices): Promise<Po
 	const width = Number(body?.width);
 	const height = Number(body?.height);
 	const rating = typeof body?.rating === 'string' ? body.rating.trim() : '';
-	const fileUrl = services.media.get(mediaRef);
+	const fileUrl = services.media.get(mediaRef)?.fileUrl ?? '';
 	if (!remoteId || !fileUrl || !Number.isFinite(width) || !Number.isFinite(height)) return null;
 	return {
 		source: 'gelbooru',
@@ -180,20 +180,14 @@ export async function handleLibrary(
 		const row = readyOriginal(services, itemId);
 		const path = row ? localPath(services.dataDir, row.relativePath) : null;
 		if (!path) return jsonError('NOT_FOUND', 'Original is not ready', 404);
-		let bytes: Buffer;
-		try {
-			bytes = readFileSync(path);
-		} catch {
-			return jsonError('NOT_FOUND', 'Original is not ready', 404);
-		}
-		return new Response(request.method === 'HEAD' ? null : bytes, {
-			headers: {
-				'content-type': row?.mime || 'application/octet-stream',
-				'content-length': String(bytes.length),
-				'x-content-type-options': 'nosniff',
-				'cache-control': 'private, no-store'
-			}
-		});
+		const streamed = fileMediaResponse(
+			path,
+			request.method,
+			request.headers.get('range'),
+			row.mime || 'application/octet-stream'
+		);
+		if (!streamed) return jsonError('NOT_FOUND', 'Original is not ready', 404);
+		return streamed;
 	}
 
 	return null;

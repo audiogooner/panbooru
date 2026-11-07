@@ -95,7 +95,7 @@
 					{#each row as post (post.id)}
 						<button type="button" onclick={() => showPost(post.id)}>
 							<img
-								src={`/api/media/${post.mediaRef}`}
+								src={`/api/media/${post.mediaRef}?recipe=thumb`}
 								alt={post.tags.join(' ')}
 								width={Math.round(post.width)}
 								height={Math.round(post.height)}

@@ -1,6 +1,5 @@
-import { checkDestination, checkRedirect } from '#lib/server/media/policy.ts';
-import { passThroughMedia, singleRangeHeader } from '#lib/server/media/range.ts';
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
+import { serveMedia } from '#lib/server/media/serve.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { compileRatingTags } from '#lib/server/library/rating-tags.ts';
 import {
@@ -102,34 +101,7 @@ export async function handleSource(
 		url.pathname.startsWith('/api/media/')
 	) {
 		if (!session()) return jsonError('UNAUTHORIZED', 'Session required', 401);
-		const ref = decodeURIComponent(url.pathname.slice('/api/media/'.length));
-		const target = services.media.get(ref);
-		if (!target) return jsonError('NOT_FOUND', 'Media was not found', 404);
-		const answers = await services.lookup(new URL(target).hostname);
-		const decision = checkDestination(target, {
-			allowHosts: services.allowHosts,
-			lookup: () => answers
-		});
-		if (!decision.ok) return jsonError('MEDIA_BLOCKED', 'Media host is not approved', 502);
-		const headers = new Headers();
-		headers.set('referer', 'https://gelbooru.com/');
-		const range = request.method === 'GET' ? singleRangeHeader(request.headers.get('range')) : null;
-		if (range) headers.set('range', range);
-		const upstream = await services.fetchUpstream(new URL(target), {
-			method: request.method,
-			headers,
-			redirect: 'manual'
-		});
-		if (!checkRedirect(upstream.status).ok) {
-			await upstream.body?.cancel();
-			return jsonError('UPSTREAM_INVALID', 'Media could not be fetched', 502);
-		}
-		const media = passThroughMedia(request.method, upstream);
-		if (!media) {
-			await upstream.body?.cancel();
-			return jsonError('UPSTREAM_INVALID', 'Media could not be fetched', 502);
-		}
-		return media;
+		return serveMedia(request, url, services);
 	}
 
 	return null;

@@ -9,7 +9,7 @@ import { owner, sessions, sourceCredentials } from '#lib/server/db/schema.ts';
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher.ts';
-import { probeGelbooruCredentials } from '#lib/server/sources/gelbooru.ts';
+import { probeGelbooruCredentials, type MediaTarget } from '#lib/server/sources/gelbooru.ts';
 import { handleLibrary } from '#lib/server/library/routes.ts';
 import { type UpstreamRequest } from '#lib/server/media/range.ts';
 import { handleSource } from '#lib/server/sources/routes.ts';
@@ -28,7 +28,7 @@ export type AppServices = {
 	allowHosts: readonly string[];
 	lookup: (hostname: string) => readonly string[] | Promise<readonly string[]>;
 	fetchUpstream: (input: URL, init?: UpstreamRequest) => Promise<Response>;
-	media: Map<string, string>;
+	media: Map<string, MediaTarget>;
 };
 
 const minimumPassword = 12;

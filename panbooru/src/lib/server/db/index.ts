@@ -111,6 +111,21 @@ create unique index removal_memberships_identity
 	on removal_memberships (action_id, item_id, kind, ifnull(album_id, ''));
 `;
 
+const derivativeMigration = `
+create table derivatives (
+	id text primary key,
+	source_identity text not null,
+	recipe text not null,
+	width integer not null,
+	height integer not null,
+	format text not null,
+	relative_path text not null,
+	byte_size integer not null,
+	label text,
+	unique (source_identity, recipe)
+);
+`;
+
 const tagMigration = `
 create table source_tags (
 	source text not null,
@@ -157,6 +172,17 @@ export function openDatabase(dataDir: string) {
 			sqlite
 				.prepare('insert into schema_migrations (version, applied_at, checksum) values (4, ?, ?)')
 				.run(Date.now(), 'source-tags-v4');
+		})();
+	}
+	const derivative = sqlite
+		.prepare('select version from schema_migrations where version = 5')
+		.get();
+	if (!derivative) {
+		sqlite.transaction(() => {
+			sqlite.exec(derivativeMigration);
+			sqlite
+				.prepare('insert into schema_migrations (version, applied_at, checksum) values (5, ?, ?)')
+				.run(Date.now(), 'derivatives-v5');
 		})();
 	}
 	return drizzle(sqlite, { schema });

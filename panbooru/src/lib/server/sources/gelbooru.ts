@@ -72,12 +72,18 @@ function records(value: unknown) {
 	return [];
 }
 
-export function normalizePosts(json: unknown, media: Map<string, string>) {
+export type MediaTarget = {
+	fileUrl: string;
+	previewUrl: string;
+};
+
+export function normalizePosts(json: unknown, media: Map<string, MediaTarget>) {
 	const root = json as { post?: unknown };
 	return records(root.post).map((post) => {
 		const fileUrl = String(post.file_url ?? '');
+		const previewUrl = String(post.preview_url ?? fileUrl);
 		const mediaRef = randomUUID();
-		if (fileUrl) media.set(mediaRef, fileUrl);
+		if (fileUrl) media.set(mediaRef, { fileUrl, previewUrl });
 		const tags = String(post.tags ?? '')
 			.split(/\s+/)
 			.filter(Boolean);

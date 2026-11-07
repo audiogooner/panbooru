@@ -63,17 +63,19 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 	await expect(page.locator('.gallery img')).toHaveCount(0);
 	const viewerImage = page.locator('.viewer .full');
 	await expect(viewerImage).toBeVisible();
-	await expect(viewerImage).toHaveAttribute('src', mediaSrc ?? '');
-	await expect(page.locator('.viewer .backdrop')).toHaveAttribute('src', mediaSrc ?? '');
+	await expect(viewerImage).toHaveAttribute('src', /recipe=display/);
+	const fullSrc = await viewerImage.getAttribute('src');
+	const backdropSrc = await page.locator('.viewer .backdrop').getAttribute('src');
+	expect(backdropSrc).toContain('recipe=backdrop');
+	expect(backdropSrc).not.toBe(fullSrc);
+	expect(fullSrc).not.toBe(mediaSrc);
 	await page.getByRole('button', { name: 'Show tags' }).click();
 	await expect(page.getByRole('list', { name: 'Post tags' })).toContainText('sunset');
 	await expect(page.getByRole('separator', { name: 'Resize details' })).toBeVisible();
 	const hiddenSidebar = await nav.boundingBox();
 	expect(hiddenSidebar?.x ?? 0).toBeLessThan(0);
 	await page.locator('.edge-left').hover();
-	await expect
-		.poll(async () => (await nav.boundingBox())?.x ?? -1)
-		.toBeGreaterThanOrEqual(0);
+	await expect.poll(async () => (await nav.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
 
 	await page.keyboard.press('Escape');
 	await expect(page.locator('.gallery img').first()).toBeVisible();
@@ -123,7 +125,9 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 
 	await page.locator('.gallery img').first().click();
 	await page.getByRole('button', { name: 'Show tags' }).click();
-	await tags.getByRole('button', { name: 'landscape', exact: true }).click({ modifiers: ['Shift'] });
+	await tags
+		.getByRole('button', { name: 'landscape', exact: true })
+		.click({ modifiers: ['Shift'] });
 	await expect(page.getByLabel('Tags')).toHaveValue('sunset landscape');
 
 	await page.locator('.gallery img').first().click();
