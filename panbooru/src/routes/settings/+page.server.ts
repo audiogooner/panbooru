@@ -4,8 +4,9 @@ import { sourceCredentials } from '#lib/server/db/schema.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = () => {
-	const row = getProcessServices()
-		.db.select()
+	const services = getProcessServices();
+	const row = services.db
+		.select()
 		.from(sourceCredentials)
 		.where(eq(sourceCredentials.source, 'gelbooru'))
 		.get();
