@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { expect, test, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from '../lib/e2e-isolation';
 
 mkdirSync(new URL('../../test-results/', import.meta.url), { recursive: true });
 

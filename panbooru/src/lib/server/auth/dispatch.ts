@@ -13,6 +13,7 @@ import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher
 import { gelbooruCredentialState } from '#lib/server/sources/gelbooru.ts';
 import { probeGelbooruCredentials, type MediaTarget } from '#lib/server/sources/gelbooru.ts';
 import { handleBackup } from '#lib/server/library/backup.ts';
+import { e2eLibraryReset } from '#lib/server/library/e2e-reset.ts';
 import { handleImport } from '#lib/server/library/import.ts';
 import { handleLibrary } from '#lib/server/library/routes.ts';
 import { type UpstreamRequest } from '#lib/server/media/range.ts';
@@ -215,6 +216,8 @@ function tokensMatch(left: string, right: string) {
 export async function dispatch(request: Request, services: AppServices): Promise<Response | null> {
 	const url = new URL(request.url);
 	if (request.method === 'GET' && url.pathname === '/health') return null;
+	const libraryReset = e2eLibraryReset(request, url, services.db);
+	if (libraryReset) return libraryReset;
 
 	const readsMedia =
 		(request.method === 'GET' || request.method === 'HEAD') &&

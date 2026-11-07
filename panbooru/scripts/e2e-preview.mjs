@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { createServer } from 'node:http';
@@ -10,6 +11,7 @@ const secretPath = join(dataDir, 'secrets', 'master.key');
 const infoDir = join(import.meta.dirname, '..', 'test-results');
 mkdirSync(infoDir, { recursive: true });
 const infoPath = join(infoDir, 'e2e-data-dir');
+const resetToken = randomBytes(32).toString('hex');
 const clip = readFileSync(new URL('./fixtures/clip.mp4', import.meta.url));
 const jpeg = await sharp({
 	create: { width: 8, height: 8, channels: 3, background: { r: 40, g: 80, b: 120 } }
@@ -170,6 +172,7 @@ const address = fixture.address();
 if (!address || typeof address === 'string') throw new Error('fixture failed to bind');
 const fixtureOrigin = `http://127.0.0.1:${address.port}`;
 writeFileSync(infoPath, dataDir);
+writeFileSync(join(infoDir, 'e2e-reset-token'), resetToken);
 
 const preview = spawn('npm', ['run', 'preview', '--', '--host', '127.0.0.1', '--port', '4173'], {
 	stdio: 'inherit',
@@ -177,6 +180,7 @@ const preview = spawn('npm', ['run', 'preview', '--', '--host', '127.0.0.1', '--
 		...process.env,
 		PANBOORU_DATA_DIR: dataDir,
 		PANBOORU_SECRET_PATH: secretPath,
+		PANBOORU_E2E_RESET: resetToken,
 		PANBOORU_FIXTURE_ORIGIN: fixtureOrigin,
 		PANBOORU_MEDIA_HOSTS: 'cdn.fixture.test'
 	}

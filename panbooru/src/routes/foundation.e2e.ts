@@ -1,23 +1,32 @@
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../lib/e2e-isolation';
 
 mkdirSync(new URL('../../test-results/', import.meta.url), { recursive: true });
 
 test('owner can set up, sign in, save Gelbooru credentials, and search', async ({ page }) => {
 	await page.goto('/setup');
-	const dataDir = (
-		await readFile(new URL('../../test-results/e2e-data-dir', import.meta.url), 'utf8')
-	).trim();
-	const token = (await readFile(`${dataDir}/bootstrap.token`, 'utf8')).trim();
-	await page.getByLabel('Bootstrap token').fill(token);
-	await page.getByLabel('Password').fill('correct-horse-battery');
-	await page.getByRole('button', { name: 'Create owner' }).click();
-	await expect(page).toHaveURL('/');
+	const tokenField = page.getByLabel('Bootstrap token');
+	if ((await tokenField.count()) > 0) {
+		const dataDir = (
+			await readFile(new URL('../../test-results/e2e-data-dir', import.meta.url), 'utf8')
+		).trim();
+		const token = (await readFile(`${dataDir}/bootstrap.token`, 'utf8')).trim();
+		await tokenField.fill(token);
+		await page.getByLabel('Password').fill('correct-horse-battery');
+		await page.getByRole('button', { name: 'Create owner' }).click();
+		await expect(page).toHaveURL('/');
 
-	await page.goto('/setup');
-	await expect(page.getByLabel('Bootstrap token')).toHaveCount(0);
+		await page.goto('/setup');
+		await expect(page.getByLabel('Bootstrap token')).toHaveCount(0);
+	} else {
+		await page.goto('/login');
+		await page.getByLabel('Password').fill('correct-horse-battery');
+		await page.getByRole('button', { name: 'Log in' }).click();
+		await expect(page).toHaveURL('/');
+	}
 
+	await page.goto('/settings');
 	await page.getByRole('button', { name: 'Log out' }).click();
 	await expect(page).toHaveURL('/login');
 	await page.getByLabel('Password').fill('correct-horse-battery');
@@ -91,13 +100,13 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 	await expect(page.getByRole('img')).toHaveCount(0);
 
 	await nav.getByRole('link', { name: 'Albums' }).click();
-	await expect(page.getByRole('heading', { name: 'Albums' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Albums', exact: true })).toBeVisible();
 	await expect(page.getByText('No albums yet.')).toBeVisible();
 	await page.goto('/favorites');
-	await expect(page.getByRole('heading', { name: 'Favorites' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Favorites', exact: true })).toBeVisible();
 	await expect(page.getByText('No favorites yet.')).toBeVisible();
 	await page.goto('/saved');
-	await expect(page.getByRole('heading', { name: 'Saved searches' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Saved searches', exact: true })).toBeVisible();
 	await expect(page.getByText('No saved searches yet.')).toBeVisible();
 	await page.goto('/settings');
 	await expect(page.getByLabel('User ID')).toHaveValue('7');
