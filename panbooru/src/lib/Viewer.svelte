@@ -122,9 +122,12 @@
 	let zoomTimer = 0;
 	let revealTimer = 0;
 	let settledBackdrop = $state('');
+	let reveal = $state<{ id: string; instant: boolean } | null>(null);
+	let foregroundWarm = $state(false);
 	let alive = true;
 	let video: HTMLVideoElement | null = null;
 	const REVEAL_MS = 360;
+	const revealInstant = $derived(reveal?.id === post.id && reveal.instant);
 
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
 	const manual = $derived(manualZoom !== null && manualId === post.id);
@@ -447,18 +450,52 @@
 		});
 	}
 
-	function revealDelay() {
-		return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : REVEAL_MS;
+	function fromCache(img: HTMLImageElement) {
+		const entry = performance.getEntriesByName(img.currentSrc || img.src).at(-1);
+		if (!entry || !('decodedBodySize' in entry)) return false;
+		const timing = entry as PerformanceResourceTiming;
+		return timing.transferSize === 0 && timing.decodedBodySize > 0;
 	}
 
-	function scheduleReveal(id: string, backdrop: string) {
+	function resourceNames(url: string) {
+		const names = [url];
+		try {
+			const absolute = new URL(url, location.href).href;
+			if (absolute !== url) names.push(absolute);
+		} catch {
+			/* ignore invalid url */
+		}
+		return names;
+	}
+
+	function fromCacheUrl(url: string) {
+		if (!url) return false;
+		for (const name of resourceNames(url)) {
+			const entry = performance.getEntriesByName(name).at(-1);
+			if (!entry || !('decodedBodySize' in entry)) continue;
+			const timing = entry as PerformanceResourceTiming;
+			return timing.transferSize === 0 && timing.decodedBodySize > 0;
+		}
+		return false;
+	}
+
+	function backdropEntryKnown(url: string) {
+		if (!url) return false;
+		return resourceNames(url).some((name) => performance.getEntriesByName(name).length > 0);
+	}
+
+	function scheduleReveal(id: string, backdrop: string, instant = false) {
 		window.clearTimeout(revealTimer);
-		revealTimer = window.setTimeout(() => {
+		const delay =
+			instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : REVEAL_MS;
+		const apply = () => {
 			revealTimer = 0;
 			if (!alive || post.id !== id) return;
 			previewCleared = id;
 			settledBackdrop = backdrop;
-		}, revealDelay());
+		};
+		if (delay === 0) apply();
+		else revealTimer = window.setTimeout(apply, delay);
 	}
 
 	function markLoaded(event: Event) {
@@ -469,6 +506,12 @@
 		void (async () => {
 			await Promise.all([image.decode().catch(() => {}), decodeUrl(backdrop)]);
 			if (image.dataset.post !== id || post.id !== id) return;
+			// Warm = already complete on attach (memory cache); else PerformanceResourceTiming.
+			// Prefer both image + backdrop hits; if backdrop timing is missing, trust the still.
+			const instant =
+				(foregroundWarm || fromCache(image)) &&
+				(fromCacheUrl(backdrop) || !backdropEntryKnown(backdrop));
+			reveal = { id, instant };
 			loadedId = id;
 			if (image.complete && image.naturalWidth > 0) {
 				held = {
@@ -482,7 +525,7 @@
 					scale: zoom.scale
 				};
 			}
-			scheduleReveal(id, backdrop);
+			scheduleReveal(id, backdrop, instant);
 		})();
 	}
 
@@ -497,6 +540,11 @@
 		if (img.complete && img.naturalWidth > 0 && img.dataset.post === post.id) {
 			previewId = post.id;
 		}
+	}
+
+	function watchForeground(img: HTMLImageElement) {
+		void foreground;
+		foregroundWarm = img.complete && img.naturalWidth > 0;
 	}
 
 	function toggleFullscreen() {
@@ -536,9 +584,13 @@
 		volume = preference.volume;
 		muted = preference.muted;
 		duration = node.duration || 0;
-		loadedId = post.id;
+		const id = post.id;
+		const backdrop = blurBackdrop;
+		const instant = fromCacheUrl(backdrop);
+		reveal = { id, instant };
+		loadedId = id;
 		held = null;
-		scheduleReveal(post.id, blurBackdrop);
+		scheduleReveal(id, backdrop, instant);
 		const saved = savedPosition(post.id);
 		if (saved !== undefined && saved > 0) {
 			node.currentTime = Math.min(saved, Number.isFinite(node.duration) ? node.duration : saved);
@@ -772,7 +824,7 @@
 		<img class="backdrop settled" src={settledBackdrop} alt="" aria-hidden="true" />
 	{/if}
 	<img
-		class={['backdrop', 'incoming', { ready: !loading }]}
+		class={['backdrop', 'incoming', { ready: !loading, instant: !loading && revealInstant }]}
 		src={blurBackdrop}
 		alt=""
 		aria-hidden="true"
@@ -798,8 +850,12 @@
 					onerror={(event) => {
 						const node = event.currentTarget;
 						if (node instanceof HTMLVideoElement && node.dataset.post === post.id) {
-							loadedId = post.id;
-							scheduleReveal(post.id, blurBackdrop);
+							const id = post.id;
+							const backdrop = blurBackdrop;
+							const instant = fromCacheUrl(backdrop);
+							reveal = { id, instant };
+							loadedId = id;
+							scheduleReveal(id, backdrop, instant);
 						}
 					}}
 				>
@@ -854,6 +910,7 @@
 						pannable: canPan,
 						grabbing: dragging,
 						ready: !loading,
+						instant: !loading && revealInstant,
 						previewed: previewReady && loading
 					}
 				]}
@@ -892,6 +949,7 @@
 					alt={post.tags.join(' ')}
 					data-post={post.id}
 					draggable="false"
+					{@attach watchForeground}
 					onload={markLoaded}
 					onerror={markLoaded}
 				/>
@@ -1125,6 +1183,11 @@
 
 	.backdrop.incoming.ready {
 		opacity: 1;
+	}
+
+	.stage.instant .foreground,
+	.backdrop.incoming.instant {
+		transition: none;
 	}
 
 	.stage {
