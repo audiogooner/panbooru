@@ -10,6 +10,7 @@ import type { AppDatabase } from '#lib/server/db/index.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher.ts';
 import { probeGelbooruCredentials, type MediaTarget } from '#lib/server/sources/gelbooru.ts';
+import { handleBackup } from '#lib/server/library/backup.ts';
 import { handleLibrary } from '#lib/server/library/routes.ts';
 import { type UpstreamRequest } from '#lib/server/media/range.ts';
 import { handleSource } from '#lib/server/sources/routes.ts';
@@ -320,6 +321,8 @@ export async function dispatch(request: Request, services: AppServices): Promise
 	if (source) return source;
 	const library = await handleLibrary(request, url, services, session);
 	if (library) return library;
+	const backup = await handleBackup(request, url, services, session);
+	if (backup) return backup;
 
 	if (url.pathname.startsWith('/api/')) {
 		return jsonError('NOT_FOUND', 'Not found', 404);

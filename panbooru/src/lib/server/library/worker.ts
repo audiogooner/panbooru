@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppDatabase } from '#lib/server/db/index.ts';
+import { inMaintenance } from '#lib/server/library/maintenance.ts';
 import { promoteOriginal } from '#lib/server/library/original.ts';
 
 export const ORIGINAL_LEASE_MS = 30_000;
@@ -92,6 +93,7 @@ async function download(job: ClaimedJob, options: OriginalPassOptions) {
 		markRetry(options.db, job.id, options.now, 'verification failed');
 		return;
 	}
+	if (inMaintenance(options.dataDir)) return;
 	const expectedHash = job.expectedHash ?? createHash('sha256').update(bytes).digest('hex');
 	const promoted = promoteOriginal({
 		db: options.db,
@@ -103,6 +105,7 @@ async function download(job: ClaimedJob, options: OriginalPassOptions) {
 		expectedHash,
 		afterTempWrite: options.afterTempWrite
 	});
+	if (inMaintenance(options.dataDir)) return;
 	if (!promoted.ready) {
 		markRetry(options.db, job.id, options.now, 'verification failed');
 		return;
@@ -135,6 +138,7 @@ export function reconcileOriginals(db: AppDatabase, dataDir: string, now: number
 
 export async function runOriginalPass(options: OriginalPassOptions) {
 	for (;;) {
+		if (inMaintenance(options.dataDir)) return;
 		const job = claimJob(options.db, options.now, ORIGINAL_LEASE_MS);
 		if (!job) return;
 		await download(job, options);

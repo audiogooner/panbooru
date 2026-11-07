@@ -11,6 +11,7 @@ import {
 	saveFavorite,
 	type PostMetadata
 } from '#lib/server/library/save.ts';
+import { inMaintenance } from '#lib/server/library/maintenance.ts';
 import { undoRemoval } from '#lib/server/library/removal.ts';
 import { suggestAlbum, suggestFavorites } from '#lib/server/library/search.ts';
 import { runServiceOriginalPass } from '#lib/server/library/worker.ts';
@@ -88,6 +89,9 @@ export async function handleLibrary(
 ) {
 	if (!url.pathname.startsWith('/api/library/')) return null;
 	if (!hasSession) return jsonError('UNAUTHORIZED', 'Session required', 401);
+	if (request.method !== 'GET' && request.method !== 'HEAD' && inMaintenance(services.dataDir)) {
+		return jsonError('UNAVAILABLE', 'Library is in maintenance', 503);
+	}
 
 	if (request.method === 'POST' && url.pathname === '/api/library/favorites') {
 		const metadata = await readMetadata(request, services);
