@@ -1,12 +1,17 @@
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, type AppDatabase } from '#lib/server/db/index.ts';
+import { promoteOriginal } from '#lib/server/library/original.ts';
 import { undoRemoval } from '#lib/server/library/removal.ts';
 import {
+	createAlbum,
 	listFavorites,
 	removeFavoriteMembership,
+	saveAlbumMembership,
 	saveFavorite,
 	type PostMetadata
 } from '#lib/server/library/save.ts';
@@ -97,4 +102,65 @@ describe('removal hold', () => {
 		expect(count(db, 'removal_actions')).toBe(0);
 		expect(count(db, 'saved_items')).toBe(1);
 	});
+
+	it('deletes the held original at exactly 60 seconds', async () => {
+		const { db, dataDir } = await database();
+		const saved = saveFavorite(db, metadata, removedAt - 10);
+		const file = originalFile(db, dataDir, saved.itemId, Buffer.from('sunset-bytes'));
+		removeFavoriteMembership(db, dataDir, saved.itemId, removedAt);
+		const action = db.$client.prepare('select id from removal_actions').get() as { id: string };
+		expect(undoRemoval(db, dataDir, action.id, removedAt + 60_000)).toBe(false);
+		expect(listFavorites(db)).toEqual([]);
+		expect(count(db, 'saved_items')).toBe(0);
+		expect(count(db, 'post_snapshots')).toBe(0);
+		expect(existsSync(file)).toBe(false);
+		expect(count(db, 'removal_actions')).toBe(0);
+	});
+
+	it('deletes the replaced hold immediately when nothing retains it', async () => {
+		const { db, dataDir } = await database();
+		const first = saveFavorite(db, metadata, removedAt - 10);
+		const firstFile = originalFile(db, dataDir, first.itemId, Buffer.from('sunset-bytes'));
+		const second = saveFavorite(db, { ...metadata, remoteId: '11' }, removedAt);
+		const secondFile = originalFile(db, dataDir, second.itemId, Buffer.from('forest-bytes'));
+		removeFavoriteMembership(db, dataDir, first.itemId, removedAt);
+		removeFavoriteMembership(db, dataDir, second.itemId, removedAt + 1);
+		expect(existsSync(firstFile)).toBe(false);
+		expect(count(db, 'saved_items')).toBe(1);
+		expect(existsSync(secondFile)).toBe(true);
+		const action = db.$client
+			.prepare('select removed_at as removedAt from removal_actions')
+			.get() as { removedAt: number };
+		expect(action.removedAt).toBe(removedAt + 1);
+	});
+
+	it('keeps an original that an album still retains when the hold is replaced', async () => {
+		const { db, dataDir } = await database();
+		const saved = saveFavorite(db, metadata, removedAt - 10);
+		const file = originalFile(db, dataDir, saved.itemId, Buffer.from('sunset-bytes'));
+		const album = createAlbum(db, 'Landscapes', removedAt - 5);
+		saveAlbumMembership(db, metadata, album.id, removedAt - 5);
+		removeFavoriteMembership(db, dataDir, saved.itemId, removedAt);
+		expect(existsSync(file)).toBe(true);
+		const other = saveFavorite(db, { ...metadata, remoteId: '11' }, removedAt);
+		const otherFile = originalFile(db, dataDir, other.itemId, Buffer.from('forest-bytes'));
+		removeFavoriteMembership(db, dataDir, other.itemId, removedAt + 1);
+		expect(existsSync(file)).toBe(true);
+		expect(existsSync(otherFile)).toBe(true);
+		expect(count(db, 'saved_items')).toBe(2);
+	});
 });
+
+function originalFile(db: AppDatabase, dataDir: string, itemId: string, body: Buffer) {
+	const promoted = promoteOriginal({
+		db,
+		dataDir,
+		itemId,
+		body,
+		mime: 'image/jpeg',
+		expectedBytes: body.byteLength,
+		expectedHash: createHash('sha256').update(body).digest('hex')
+	});
+	if (!promoted.relativePath) throw new Error('original was not stored');
+	return join(dataDir, promoted.relativePath);
+}

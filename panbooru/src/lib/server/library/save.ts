@@ -10,7 +10,7 @@ import {
 	postSnapshots,
 	savedItems
 } from '#lib/server/db/schema.ts';
-import { recordHold } from '#lib/server/library/removal.ts';
+import { expireRemovals, recordHold, releaseHeldFiles } from '#lib/server/library/removal.ts';
 import { type SavedPost } from '#lib/server/library/retention.ts';
 
 export type PostMetadata = {
@@ -260,16 +260,17 @@ export function removeFavoriteMembership(
 	itemId: string,
 	now = Date.now()
 ) {
-	void dataDir;
+	expireRemovals(db, dataDir, now);
 	const current = membership(db, itemId);
 	if (!current?.favorite) return false;
 	const row = db.$client
 		.prepare('select favorited_at as addedAt from favorites where item_id = ?')
 		.get(itemId) as { addedAt: number };
-	db.$client.transaction(() => {
+	const paths = db.$client.transaction(() => {
 		db.$client.prepare('delete from favorites where item_id = ?').run(itemId);
-		recordHold(db, [{ itemId, kind: 'favorite', albumId: null, addedAt: row.addedAt }], now);
+		return recordHold(db, [{ itemId, kind: 'favorite', albumId: null, addedAt: row.addedAt }], now);
 	})();
+	releaseHeldFiles(dataDir, paths);
 	return true;
 }
 
@@ -280,17 +281,18 @@ export function removeAlbumMembershipRow(
 	itemId: string,
 	now = Date.now()
 ) {
-	void dataDir;
+	expireRemovals(db, dataDir, now);
 	const current = membership(db, itemId);
 	if (!current?.albumIds.includes(albumId)) return false;
 	const row = db.$client
 		.prepare('select added_at as addedAt from album_items where album_id = ? and item_id = ?')
 		.get(albumId, itemId) as { addedAt: number };
-	db.$client.transaction(() => {
+	const paths = db.$client.transaction(() => {
 		db.$client
 			.prepare('delete from album_items where album_id = ? and item_id = ?')
 			.run(albumId, itemId);
-		recordHold(db, [{ itemId, kind: 'album', albumId, addedAt: row.addedAt }], now);
+		return recordHold(db, [{ itemId, kind: 'album', albumId, addedAt: row.addedAt }], now);
 	})();
+	releaseHeldFiles(dataDir, paths);
 	return true;
 }
