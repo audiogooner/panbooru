@@ -1,4 +1,4 @@
-const ratingOrder = ['general', 'sensitive', 'questionable', 'explicit'] as const;
+export const ratingOrder = ['general', 'sensitive', 'questionable', 'explicit'] as const;
 
 export function compileRatingTags(selected: readonly string[]): string {
 	const chosen = ratingOrder.filter((rating) => selected.includes(rating));
