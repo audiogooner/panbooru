@@ -7,6 +7,7 @@ import { RateLimiter } from '#lib/server/auth/rate-limit.ts';
 import { SESSION_ABSOLUTE_MS, SESSION_COOKIE, SESSION_IDLE_MS } from '#lib/server/auth/session.ts';
 import { owner, sessions, sourceCredentials } from '#lib/server/db/schema.ts';
 import type { AppDatabase } from '#lib/server/db/index.ts';
+import { readinessReport } from '#lib/server/health.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher.ts';
 import { gelbooruCredentialState } from '#lib/server/sources/gelbooru.ts';
@@ -285,6 +286,11 @@ export async function dispatch(request: Request, services: AppServices): Promise
 			.where(eq(sessions.tokenHash, session.tokenHash))
 			.run();
 		return jsonData({ authenticated: false });
+	}
+
+	if (request.method === 'GET' && url.pathname === '/api/ready') {
+		if (!readSession(request, services)) return jsonError('UNAUTHORIZED', 'Session required', 401);
+		return jsonData(readinessReport(services));
 	}
 
 	if (request.method === 'GET' && url.pathname === '/api/auth/session') {

@@ -1,56 +1,57 @@
-# sv
+# Panbooru
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Panbooru is a single-owner gallery. The application keeps SQLite and media on a data volume and the encryption key on a separate secret mount. Put an HTTPS reverse proxy in front before exposing it beyond the host.
 
-## Creating a project
+## Run locally
 
-If you're seeing this, you've probably already done this step. Congrats!
+1. Create a data directory and a secret directory. The secret directory must be a different mount from the data directory so a database copy does not include the master key. The container user is uid 1001 and must be able to write the data directory.
+2. Start the app bound to loopback. Compose publishes `127.0.0.1:3000` only.
 
 ```sh
-# create a new project
-npx sv create my-app
+docker compose up --build
 ```
 
-To recreate this project with the same configuration:
+The service reads:
 
-```sh
-# recreate this project
-npx sv@1.2.0 create --template minimal --types ts --add prettier eslint vitest="usages:unit,component" playwright="demo:no" --install npm panbooru
+- `PANBOORU_DATA_DIR` — library database, originals, derivatives, cache, temporary files, and backup staging
+- `PANBOORU_SECRET_PATH` — 32-byte master key. The process creates this file on a fresh install. It does not create a new key when saved Gelbooru credentials already exist.
+
+3. Terminate TLS in a proxy on the host and forward it to `127.0.0.1:3000`. The proxy is not part of the Compose file. A Caddy site block is enough:
+
+```caddy
+panbooru.example {
+	reverse_proxy 127.0.0.1:3000
+}
 ```
 
-## Adding features
+Disable request-body and URL logging on the proxy for `/api/settings/gelbooru/validate`. Upstream credential parameters are redacted in application logs, and the proxy should not record them either.
 
-Add features to your project with `sv add`:
+4. Read the bootstrap token from the data volume at `bootstrap.token`, open `/setup`, and create the owner password. The token file is removed when setup succeeds. There is no password-recovery page.
+5. Sign in and enter the Gelbooru user id and API key under Settings, then press Validate. The key is stored as ciphertext. The settings page and the session response do not return it.
+6. Search, open a post, and favorite it. The original download continues on the server. When it is ready, the favorites page serves the local file.
+7. Create a backup from an authenticated `POST /api/backups`. The bundle is a SQLite snapshot, the retained originals, and a manifest of schema version, application version, and sha256 hashes. Derivatives and cache are omitted. The master key is not in the bundle.
+
+`/data/backups` is staging on the same volume as the live library. It is not the only copy. Copy a completed backup, and the secret mount, to storage that is not the live host volume before treating the backup as kept.
+
+Restore a verified bundle into an empty data directory, then point the app at that directory and at the original secret mount. A missing or wrong key still allows owner login and local originals. Gelbooru reports that the master key is unavailable until the owner validates a new key. The process does not write a new key over existing ciphertext.
+
+The discussed 5–50 GB library is a planning range, not a measured capacity. Give the data volume the space and permissions the library actually needs. This build does not publish a latency or recovery-time target.
+
+## Fail closed
+
+`GET /health` answers without paths or secrets. `GET /api/ready` is authenticated and reports whether the database, key, and storage are usable, without their locations.
+
+On startup the process refuses a database whose schema version is newer than this build. Take a backup before upgrading. An older image is not expected to open a database written by a newer one.
+
+A full disk leaves the original unready. `SIGTERM` stops new download claims and leaves an in-flight claim recoverable after the lease expires.
+
+## Development
 
 ```sh
-npx sv add
-```
-
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
+npm install
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+npm run test:unit -- --run
+npx playwright test src/routes/foundation.e2e.ts src/routes/library.e2e.ts src/routes/viewer.e2e.ts src/routes/a11y.e2e.ts
 ```
 
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Copy `.env.example` to `.env` for local paths. Do not commit `.env`, `data/`, key files, or Playwright `test-results`.

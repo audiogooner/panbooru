@@ -16,7 +16,11 @@ import {
 } from '#lib/server/auth/dispatch.ts';
 import { RateLimiter } from '#lib/server/auth/rate-limit.ts';
 import { openDatabase } from '#lib/server/db/index.ts';
-import { reconcileOriginals, runServiceOriginalPass } from '#lib/server/library/worker.ts';
+import {
+	listenForShutdown,
+	reconcileOriginals,
+	runServiceOriginalPass
+} from '#lib/server/library/worker.ts';
 
 export type StartAppOptions = {
 	dataDir?: string;
@@ -138,6 +142,7 @@ export function prepareProcessServices() {
 	if (!preparing) {
 		loadDotEnv();
 		preparing = (async () => {
+			listenForShutdown();
 			const services = createServices();
 			ensureBootstrap(services);
 			await applyEnvCredentials(services);

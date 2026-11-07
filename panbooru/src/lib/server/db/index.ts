@@ -126,6 +126,8 @@ create table derivatives (
 );
 `;
 
+export const SCHEMA_VERSION = 5;
+
 const tagMigration = `
 create table source_tags (
 	source text not null,
@@ -184,6 +186,14 @@ export function openDatabase(dataDir: string) {
 				.prepare('insert into schema_migrations (version, applied_at, checksum) values (5, ?, ?)')
 				.run(Date.now(), 'derivatives-v5');
 		})();
+	}
+	const newest = sqlite.prepare('select max(version) as version from schema_migrations').get() as {
+		version: number | null;
+	};
+	if ((newest.version ?? 0) > SCHEMA_VERSION) {
+		const version = newest.version;
+		sqlite.close();
+		throw new Error(`schema version ${version} is newer than this build`);
 	}
 	return drizzle(sqlite, { schema });
 }

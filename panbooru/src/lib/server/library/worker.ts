@@ -8,6 +8,23 @@ import { promoteOriginal } from '#lib/server/library/original.ts';
 export const ORIGINAL_LEASE_MS = 30_000;
 
 const retryDelayMs = 1_000;
+let acceptingClaims = true;
+
+export function stopJobClaims() {
+	acceptingClaims = false;
+}
+
+export function resetJobClaimsForTests() {
+	acceptingClaims = true;
+}
+
+function onShutdown() {
+	stopJobClaims();
+}
+
+export function listenForShutdown() {
+	if (!process.listeners('SIGTERM').includes(onShutdown)) process.on('SIGTERM', onShutdown);
+}
 
 export type OriginalPassOptions = {
 	db: AppDatabase;
@@ -93,7 +110,7 @@ async function download(job: ClaimedJob, options: OriginalPassOptions) {
 		markRetry(options.db, job.id, options.now, 'verification failed');
 		return;
 	}
-	if (inMaintenance(options.dataDir)) return;
+	if (!acceptingClaims || inMaintenance(options.dataDir)) return;
 	const expectedHash = job.expectedHash ?? createHash('sha256').update(bytes).digest('hex');
 	const promoted = promoteOriginal({
 		db: options.db,
@@ -105,7 +122,7 @@ async function download(job: ClaimedJob, options: OriginalPassOptions) {
 		expectedHash,
 		afterTempWrite: options.afterTempWrite
 	});
-	if (inMaintenance(options.dataDir)) return;
+	if (!acceptingClaims || inMaintenance(options.dataDir)) return;
 	if (!promoted.ready) {
 		markRetry(options.db, job.id, options.now, 'verification failed');
 		return;
@@ -138,7 +155,7 @@ export function reconcileOriginals(db: AppDatabase, dataDir: string, now: number
 
 export async function runOriginalPass(options: OriginalPassOptions) {
 	for (;;) {
-		if (inMaintenance(options.dataDir)) return;
+		if (!acceptingClaims || inMaintenance(options.dataDir)) return;
 		const job = claimJob(options.db, options.now, ORIGINAL_LEASE_MS);
 		if (!job) return;
 		await download(job, options);
