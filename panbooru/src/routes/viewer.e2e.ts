@@ -108,10 +108,11 @@ test('viewer steps through loaded posts and replaces a slow still', async ({ pag
 	await page.keyboard.press('ArrowRight');
 	await expect(page.locator('video.full')).toHaveAttribute('aria-label', /clip/);
 	await page.keyboard.press('d');
-	await expect(page.getByText('Loading')).toBeVisible();
+	const throbber = page.getByRole('status', { name: 'Loading' });
+	await expect(throbber).toBeVisible();
 	await expect(artwork).toHaveAttribute('alt', /slow/);
 	await expect(artwork).toHaveAttribute('src', new RegExp(refs[2] ?? 'missing'));
-	await expect(page.getByText('Loading')).toBeHidden();
+	await expect(throbber).toBeHidden();
 
 	await page.locator('.viewer .stage').dblclick({ position: { x: 40, y: 30 } });
 	await expect.poll(async () => Math.abs(Number(await page.locator('.viewer .stage').getAttribute('data-x')))).toBeGreaterThan(1);

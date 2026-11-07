@@ -23,6 +23,8 @@
 		wheelZoom,
 		type Zoom
 	} from '#lib/zoom.ts';
+	import { cubicOut } from 'svelte/easing';
+	import { fade, scale } from 'svelte/transition';
 
 	const DETAILS_MIN = 160;
 	const DETAILS_MAX = 560;
@@ -872,7 +874,17 @@
 		{#if departing}<img src={departing.src} alt="" />{/if}
 	</div>
 	{#if loading}
-		<p class="loading">Loading</p>
+		<div class="throbber-slot">
+			<div
+				class="throbber glass"
+				role="status"
+				aria-label="Loading"
+				in:fade={{ delay: 220, duration: 140 }}
+				out:scale={{ duration: 170, start: 0.88, opacity: 0, easing: cubicOut }}
+			>
+				<span class="spinner" aria-hidden="true"></span>
+			</div>
+		</div>
 	{/if}
 	<div class="edge-zone previous-zone"></div>
 	<div class="edge-zone next-zone"></div>
@@ -1147,22 +1159,36 @@
 		transform: translate(-50%, -50%);
 	}
 
-	.loading {
+	.throbber-slot {
 		position: absolute;
 		z-index: 4;
 		top: 50%;
 		left: 50%;
-		margin: 0;
-		color: #dddde3;
 		pointer-events: none;
 		transform: translate(-50%, -50%);
-		/* Stay invisible for fast loads so cached switches never flash the label. */
-		animation: viewer-loading 0.15s linear 220ms backwards;
 	}
 
-	@keyframes viewer-loading {
-		from {
-			opacity: 0;
+	.throbber {
+		display: grid;
+		place-items: center;
+		width: 52px;
+		height: 52px;
+		border-radius: 16px;
+	}
+
+	.spinner {
+		box-sizing: border-box;
+		width: 22px;
+		height: 22px;
+		border: 2px solid rgb(221 221 227 / 22%);
+		border-top-color: #dddde3;
+		border-radius: 50%;
+		animation: viewer-spin 0.72s linear infinite;
+	}
+
+	@keyframes viewer-spin {
+		to {
+			transform: rotate(360deg);
 		}
 	}
 
@@ -1196,6 +1222,12 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
+		.spinner {
+			animation: none;
+			border-color: rgb(221 221 227 / 45%);
+			border-top-color: #dddde3;
+		}
+
 		.departure.leaving {
 			animation: none;
 			opacity: 0;
