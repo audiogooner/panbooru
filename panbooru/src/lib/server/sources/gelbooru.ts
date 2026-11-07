@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { mediaTypeForPath } from '#lib/playable.ts';
 import { isVideoFile } from '#lib/server/media/derivative.ts';
 import { eq } from 'drizzle-orm';
 import type { AppDatabase } from '#lib/server/db/index.ts';
@@ -67,6 +68,14 @@ export async function gelbooruJson(
 	}
 }
 
+function mediaType(fileUrl: string) {
+	try {
+		return mediaTypeForPath(new URL(fileUrl).pathname);
+	} catch {
+		return '';
+	}
+}
+
 function records(value: unknown) {
 	if (Array.isArray(value)) return value as Record<string, unknown>[];
 	if (value && typeof value === 'object') return [value as Record<string, unknown>];
@@ -95,7 +104,8 @@ export function normalizePosts(json: unknown, media: Map<string, MediaTarget>) {
 			height: Number(post.height ?? 0),
 			rating: String(post.rating ?? ''),
 			mediaRef,
-			kind: isVideoFile(fileUrl) ? 'video' : 'image'
+			kind: isVideoFile(fileUrl) ? 'video' : 'image',
+			mediaType: mediaType(fileUrl)
 		};
 	});
 }

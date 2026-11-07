@@ -105,7 +105,7 @@ test('viewer steps through loaded posts and replaces a slow still', async ({ pag
 	await expect(artwork).toHaveAttribute('alt', firstAlt ?? '');
 
 	await page.keyboard.press('ArrowRight');
-	await expect(artwork).toHaveAttribute('alt', /clip/);
+	await expect(page.locator('video.full')).toHaveAttribute('aria-label', /clip/);
 	await page.keyboard.press('d');
 	await expect(page.getByText('Loading')).toBeVisible();
 	await expect(artwork).toHaveAttribute('alt', /slow/);
@@ -115,16 +115,78 @@ test('viewer steps through loaded posts and replaces a slow still', async ({ pag
 	await page.locator('.viewer .stage').dblclick({ position: { x: 40, y: 30 } });
 	await expect.poll(async () => Math.abs(Number(await page.locator('.viewer .stage').getAttribute('data-x')))).toBeGreaterThan(1);
 	await page.keyboard.press('ArrowLeft');
-	await expect.poll(async () => Number(await page.locator('.viewer .stage').getAttribute('data-x'))).toBeCloseTo(0, 0);
+	await expect(page.locator('video.full')).toHaveAttribute('aria-label', /clip/);
+	await expect(page.locator('.viewer img.full')).toHaveCount(0);
 
 	await page.getByLabel('Album name').focus();
 	await page.keyboard.press('ArrowRight');
-	await expect(artwork).toHaveAttribute('alt', /clip/);
-	await page.locator('.viewer .stage').click();
+	await expect(page.locator('video.full')).toHaveAttribute('aria-label', /clip/);
 	await page.getByRole('button', { name: 'Next post' }).click();
 	await expect(page.getByRole('button', { name: 'Next post' })).toBeDisabled();
 	await page.keyboard.press('ArrowRight');
 	await expect(artwork).toHaveAttribute('alt', /slow/);
+});
+
+test('viewer plays a fixture video, seeks, and stops when closed', async ({ page }) => {
+	await ownerSession(page);
+	await page.goto('/');
+	await page.getByLabel('Tags').fill('sequence');
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await page.locator('.gallery img').nth(1).click();
+
+	const video = page.locator('video.full');
+	await expect(video).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible({ timeout: 5000 });
+	await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBeGreaterThan(0.1);
+
+	const before = await video.evaluate((node) => (node as HTMLVideoElement).currentTime);
+	await page.keyboard.press('l');
+	await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBeGreaterThan(before + 9);
+	await page.keyboard.press('j');
+	await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBeLessThan(before + 2);
+
+	await video.evaluate((node) => {
+		const element = node as HTMLVideoElement;
+		(window as unknown as { toggles: number }).toggles = 0;
+		element.addEventListener('play', () => ((window as unknown as { toggles: number }).toggles += 1));
+		element.addEventListener('pause', () => ((window as unknown as { toggles: number }).toggles += 1));
+	});
+	await video.dblclick();
+	await page.waitForTimeout(400);
+	expect(await page.evaluate(() => (window as unknown as { toggles: number }).toggles)).toBe(0);
+	await expect.poll(() => page.evaluate(() => document.fullscreenElement?.className ?? '')).toContain('viewer');
+	await page.keyboard.press('Escape');
+	await expect(video).toBeVisible();
+
+	await page.keyboard.press('Space');
+	await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).paused)).toBe(true);
+	const held = await video.evaluate((node) => (node as HTMLVideoElement).currentTime);
+	await page.keyboard.press('ArrowRight');
+	await expect(page.locator('.viewer img.full')).toBeVisible();
+	await page.keyboard.press('ArrowLeft');
+	await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).paused)).toBe(true);
+	await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBeCloseTo(held, 0);
+
+	await page.getByLabel('Volume').fill('0.25');
+	await expect.poll(() => page.evaluate(() => localStorage.getItem('panbooru.volume'))).toBe('0.25');
+	await page.reload();
+	await page.goto('/');
+	await page.getByLabel('Tags').fill('sequence');
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await page.locator('.gallery img').nth(1).click();
+	await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).volume)).toBeCloseTo(0.25);
+	await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBeLessThan(2);
+
+	await page.keyboard.press('Escape');
+	await expect(page.locator('video')).toHaveCount(0);
+	expect(await page.evaluate(() => [...document.querySelectorAll('video')].some((node) => !node.paused))).toBe(false);
+
+	await page.getByLabel('Tags').fill('foreign');
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await page.locator('.gallery img').first().click();
+	await expect(page.locator('video')).toHaveCount(0);
+	await expect(page.getByText("This file can't be played in the viewer.")).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Download' })).toBeVisible();
 });
 
 function mediaTraffic(requested: { url: string; method: string }[], ref: string) {

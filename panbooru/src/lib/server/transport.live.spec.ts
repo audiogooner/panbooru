@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadDotEnv, startApp, type RunningApp } from '#lib/server/app.ts';
+import { playable } from '#lib/playable.ts';
 import { checkDestination } from '#lib/server/media/policy.ts';
 
 const password = 'correct-horse-battery';
@@ -106,6 +107,7 @@ describe('live gelbooru transport', () => {
 			}
 		}
 		expect(types.size).toBeGreaterThan(0);
+		for (const type of types.keys()) expect(playable(type)).toBe(true);
 		for (const ref of types.values()) {
 			const past = await app.fetch(`/api/media/${ref}`, {
 				headers: { cookie, range: 'bytes=999999999999-999999999999' }

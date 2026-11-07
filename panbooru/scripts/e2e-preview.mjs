@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +9,7 @@ const secretPath = join(dataDir, 'secrets', 'master.key');
 const infoDir = join(import.meta.dirname, '..', 'test-results');
 mkdirSync(infoDir, { recursive: true });
 const infoPath = join(infoDir, 'e2e-data-dir');
+const clip = readFileSync(new URL('./fixtures/clip.mp4', import.meta.url));
 
 const fixture = createServer(async (request, response) => {
 	const url = new URL(request.url ?? '/', 'http://127.0.0.1');
@@ -23,13 +24,39 @@ const fixture = createServer(async (request, response) => {
 		response.end('jpeg-bytes');
 		return;
 	}
-	if (url.pathname.endsWith('.mp4')) {
-		response.writeHead(200, { 'content-type': 'video/mp4', 'content-length': '11' });
+	if (url.pathname.endsWith('.mp4') || url.pathname.endsWith('.mkv')) {
+		const body = url.pathname.endsWith('.mkv') ? Buffer.from('mkv-bytes') : clip;
+		const type = url.pathname.endsWith('.mkv') ? 'video/x-matroska' : 'video/mp4';
+		const headers = {
+			'content-type': type,
+			'accept-ranges': 'bytes',
+			'content-length': String(body.length)
+		};
 		if (request.method === 'HEAD') {
+			response.writeHead(200, headers);
 			response.end();
 			return;
 		}
-		response.end('video-bytes');
+		const match = /^bytes=(\d+)-(\d+)$/.exec(request.headers.range ?? '');
+		if (match) {
+			const start = Number(match[1]);
+			const end = Math.min(Number(match[2]), body.length - 1);
+			if (start >= body.length) {
+				response.writeHead(416, { 'content-range': `bytes */${body.length}` });
+				response.end();
+				return;
+			}
+			const slice = body.subarray(start, end + 1);
+			response.writeHead(206, {
+				...headers,
+				'content-length': String(slice.length),
+				'content-range': `bytes ${start}-${end}/${body.length}`
+			});
+			response.end(slice);
+			return;
+		}
+		response.writeHead(200, headers);
+		response.end(body);
 		return;
 	}
 	if (url.pathname.startsWith('/images/')) {
@@ -55,6 +82,7 @@ const fixture = createServer(async (request, response) => {
 	const missing = words.includes('missing');
 	const huge = words.includes('huge');
 	const sequence = words.includes('sequence');
+	const foreign = words.includes('foreign');
 	const post = missing
 		? {
 				id: 11,
@@ -84,7 +112,19 @@ const fixture = createServer(async (request, response) => {
 					height: 50,
 					rating: 'general'
 				};
-	const posts = sequence
+	const posts = foreign
+		? [
+				{
+					id: 31,
+					tags: 'foreign clip',
+					file_url: 'https://cdn.fixture.test/images/broken.mkv',
+					preview_url: 'https://cdn.fixture.test/images/broken.jpg',
+					width: 100,
+					height: 50,
+					rating: 'general'
+				}
+			]
+		: sequence
 		? [
 				{
 					id: 21,

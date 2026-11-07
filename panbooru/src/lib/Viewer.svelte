@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { viewerChrome } from '#lib/explore.svelte.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
+	import { playable } from '#lib/playable.ts';
+	import {
+		readPlaybackPreference,
+		savePosition,
+		savedPosition,
+		writePlaybackPreference
+	} from '#lib/playback.ts';
 	import { neighborPrefetch } from '#lib/prefetch.ts';
 	import {
 		doubleClickZoom,
@@ -39,6 +46,13 @@
 	let dragAt = { x: 0, y: 0 };
 	let direction = $state(1);
 	let loadedId = $state('');
+	let paused = $state(true);
+	let elapsed = $state(0);
+	let duration = $state(0);
+	let volume = $state(1);
+	let muted = $state(false);
+	let clickTimer = 0;
+	let video: HTMLVideoElement | null = null;
 
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
 	const manual = $derived(manualZoom !== null && manualId === post.id);
@@ -57,9 +71,11 @@
 	const foreground = $derived(
 		`/api/media/${post.mediaRef}${needsOriginal(image, zoom.scale) ? '' : '?recipe=display'}`
 	);
+	const playableVideo = $derived(post.kind === 'video' && playable(post.mediaType ?? ''));
+	const unsupportedVideo = $derived(post.kind === 'video' && !playable(post.mediaType ?? ''));
 	const sequence = $derived(posts.length ? posts : [post]);
 	const index = $derived(sequence.findIndex((item) => item.id === post.id));
-	const loading = $derived(loadedId !== post.id);
+	const loading = $derived(!unsupportedVideo && loadedId !== post.id);
 	const canPan = $derived(
 		image.width * zoom.scale > (manual ? viewportWidth : frameWidth) + 0.5 ||
 			image.height * zoom.scale > viewportHeight + 0.5
@@ -104,10 +120,21 @@
 		}
 		if ((event.key === 'f' || event.key === 'F') && !typing(event)) {
 			event.preventDefault();
-			if (document.fullscreenElement) void document.exitFullscreen();
-			else void root?.requestFullscreen();
+			toggleFullscreen();
 		}
 		if (typing(event)) return;
+		if (playableVideo && (event.key === 'j' || event.key === 'J')) {
+			event.preventDefault();
+			seekBy(-10);
+		}
+		if (playableVideo && (event.key === 'l' || event.key === 'L')) {
+			event.preventDefault();
+			seekBy(10);
+		}
+		if (playableVideo && event.key === ' ' && !(event.target instanceof HTMLButtonElement)) {
+			event.preventDefault();
+			togglePlayback();
+		}
 		if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
 			event.preventDefault();
 			move(-1);
@@ -131,7 +158,124 @@
 		loadedId = post.id;
 	}
 
+	function toggleFullscreen() {
+		if (document.fullscreenElement) void document.exitFullscreen();
+		else void root?.requestFullscreen();
+	}
+
+	function clock(seconds: number) {
+		if (!Number.isFinite(seconds)) return '0:00';
+		const whole = Math.max(0, Math.floor(seconds));
+		return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+	}
+
+	function videoElement(node: HTMLVideoElement) {
+		video = node;
+		if (node.readyState >= 1) prepareNode(node);
+		else node.addEventListener('loadedmetadata', () => prepareNode(node), { once: true });
+		return () => {
+			node.pause();
+			savePosition(post.id, node.currentTime);
+			if (video === node) video = null;
+		};
+	}
+
+	function prepareVideo(event: Event) {
+		const node = event.currentTarget;
+		if (!(node instanceof HTMLVideoElement)) return;
+		prepareNode(node);
+	}
+
+	function prepareNode(node: HTMLVideoElement) {
+		if (node.dataset.prepared === '1') return;
+		node.dataset.prepared = '1';
+		const preference = readPlaybackPreference();
+		node.volume = preference.volume;
+		node.muted = preference.muted;
+		volume = preference.volume;
+		muted = preference.muted;
+		duration = node.duration || 0;
+		loadedId = post.id;
+		const saved = savedPosition(post.id);
+		if (saved !== undefined && saved > 0) {
+			node.currentTime = Math.min(saved, Number.isFinite(node.duration) ? node.duration : saved);
+			elapsed = node.currentTime;
+			node.pause();
+			return;
+		}
+		void node.play().then(() => {
+			if (!node.isConnected) node.pause();
+		}).catch(() => {
+			paused = true;
+		});
+	}
+
+	function trackVideo(event: Event) {
+		const node = event.currentTarget;
+		if (!(node instanceof HTMLVideoElement)) return;
+		elapsed = node.currentTime;
+		duration = node.duration || 0;
+	}
+
+	function togglePlayback() {
+		if (!video) return;
+		if (video.paused) {
+			void video.play().catch(() => {
+				paused = true;
+			});
+			return;
+		}
+		video.pause();
+	}
+
+	function seekBy(delta: number) {
+		if (!video) return;
+		const limit = Number.isFinite(video.duration) ? video.duration : 0;
+		video.currentTime = Math.min(limit, Math.max(0, video.currentTime + delta));
+		elapsed = video.currentTime;
+		savePosition(post.id, video.currentTime);
+	}
+
+	function seekTo(event: Event) {
+		const input = event.currentTarget;
+		if (!(input instanceof HTMLInputElement)) return;
+		seekBy(Number(input.value) - (video?.currentTime ?? 0));
+	}
+
+	function setVolume(event: Event) {
+		const input = event.currentTarget;
+		if (!(input instanceof HTMLInputElement) || !video) return;
+		video.volume = Number(input.value);
+		video.muted = video.volume === 0;
+		volume = video.volume;
+		muted = video.muted;
+		writePlaybackPreference(video.volume, video.muted);
+	}
+
+	function toggleMute() {
+		if (!video) return;
+		video.muted = !video.muted;
+		muted = video.muted;
+		writePlaybackPreference(video.volume, video.muted);
+	}
+
+	function onVideoClick() {
+		window.clearTimeout(clickTimer);
+		clickTimer = window.setTimeout(() => {
+			clickTimer = 0;
+			togglePlayback();
+		}, 250);
+	}
+
+	function onVideoDoubleClick(event: MouseEvent) {
+		window.clearTimeout(clickTimer);
+		clickTimer = 0;
+		event.preventDefault();
+		toggleFullscreen();
+	}
+
 	function onwheel(event: WheelEvent) {
+		if (post.kind === 'video') return;
 		if (!event.ctrlKey && !event.metaKey) return;
 		event.preventDefault();
 		remember(wheelZoom(zoom, image, area(), localPoint(event), event.deltaY));
@@ -239,36 +383,90 @@
 	onwheel={onwheel}
 >
 	<img class="backdrop" src={`/api/media/${post.mediaRef}?recipe=backdrop`} alt="" />
-	{#key post.id}
-		<div
-			class={['stage', { pannable: canPan, grabbing: dragging }]}
-			role="application"
-			aria-label="Artwork"
-			data-scale={zoom.scale}
-			data-x={zoom.x}
-			data-y={zoom.y}
-			style:left="{left}px"
-			style:top="{top}px"
-			style:width="{image.width}px"
-			style:height="{image.height}px"
-			style:transform="scale({zoom.scale})"
-			onpointerdown={startDrag}
-			onpointermove={drag}
-			onpointerup={endDrag}
-			onpointercancel={endDrag}
-			ondblclick={ondblclick}
-		>
-			<img
-				class="full"
-				src={foreground}
-				alt={post.tags.join(' ')}
-				data-post={post.id}
-				draggable="false"
-				onload={markLoaded}
-				onerror={markLoaded}
-			/>
-		</div>
-	{/key}
+	{#if playableVideo}
+		{#key post.id}
+			<div class="player">
+				<video
+					class="full"
+					src={`/api/media/${post.mediaRef}`}
+					poster={`/api/media/${post.mediaRef}?recipe=display`}
+					aria-label={post.tags.join(' ')}
+					data-post={post.id}
+					loop
+					playsinline
+					{@attach videoElement}
+					onclick={onVideoClick}
+					ondblclick={onVideoDoubleClick}
+					onplay={() => (paused = false)}
+					onpause={() => (paused = true)}
+					onloadedmetadata={prepareVideo}
+					ontimeupdate={trackVideo}
+					onerror={(event) => {
+						const node = event.currentTarget;
+						if (node instanceof HTMLVideoElement && node.dataset.post === post.id) loadedId = post.id;
+					}}
+				>
+					<track kind="captions" label="Captions" srclang="en" src="data:text/vtt,WEBVTT" />
+				</video>
+				<div class="bar">
+					<button type="button" onclick={togglePlayback}>{paused ? 'Play' : 'Pause'}</button>
+					<input
+						aria-label="Timeline"
+						type="range"
+						min="0"
+						max={duration || 0}
+						step="0.1"
+						value={elapsed}
+						oninput={seekTo}
+					/>
+					<span>{clock(elapsed)} / {clock(duration)}</span>
+					<button type="button" onclick={toggleMute}>{muted ? 'Unmute' : 'Mute'}</button>
+					<input
+						aria-label="Volume"
+						type="range"
+						min="0"
+						max="1"
+						step="0.01"
+						value={volume}
+						oninput={setVolume}
+					/>
+				</div>
+			</div>
+		{/key}
+	{:else if unsupportedVideo}
+		<p class="unsupported">This file can't be played in the viewer.</p>
+	{:else}
+		{#key post.id}
+			<div
+				class={['stage', { pannable: canPan, grabbing: dragging }]}
+				role="application"
+				aria-label="Artwork"
+				data-scale={zoom.scale}
+				data-x={zoom.x}
+				data-y={zoom.y}
+				style:left="{left}px"
+				style:top="{top}px"
+				style:width="{image.width}px"
+				style:height="{image.height}px"
+				style:transform="scale({zoom.scale})"
+				onpointerdown={startDrag}
+				onpointermove={drag}
+				onpointerup={endDrag}
+				onpointercancel={endDrag}
+				ondblclick={ondblclick}
+			>
+				<img
+					class="full"
+					src={foreground}
+					alt={post.tags.join(' ')}
+					data-post={post.id}
+					draggable="false"
+					onload={markLoaded}
+					onerror={markLoaded}
+				/>
+			</div>
+		{/key}
+	{/if}
 	{#if loading}
 		<p class="loading">Loading</p>
 	{/if}
@@ -340,6 +538,50 @@
 
 	.stage.grabbing {
 		cursor: grabbing;
+	}
+
+	.player {
+		position: absolute;
+		z-index: 1;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.player .full {
+		width: auto;
+		height: auto;
+		max-width: 100%;
+		max-height: calc(100% - 84px);
+		object-fit: contain;
+		pointer-events: auto;
+	}
+
+	.bar {
+		position: absolute;
+		z-index: 8;
+		right: 24px;
+		bottom: 18px;
+		left: 24px;
+		display: flex;
+		gap: 12px;
+		align-items: center;
+		color: #dddde3;
+	}
+
+	.bar input[aria-label='Timeline'] {
+		flex: 1;
+	}
+
+	.unsupported {
+		position: absolute;
+		z-index: 2;
+		top: 50%;
+		left: 50%;
+		margin: 0;
+		color: #dddde3;
+		transform: translate(-50%, -50%);
 	}
 
 	.loading {
