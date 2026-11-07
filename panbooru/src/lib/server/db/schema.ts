@@ -64,7 +64,38 @@ export const favorites = sqliteTable('favorites', {
 export const albums = sqliteTable('albums', {
 	id: text('id').primaryKey(),
 	name: text('name').notNull(),
-	createdAt: integer('created_at').notNull()
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull().default(0),
+	pinned: integer('pinned').notNull().default(0),
+	pinOrder: integer('pin_order'),
+	temporaryOpen: integer('temporary_open').notNull().default(0),
+	temporaryOpenedAt: integer('temporary_opened_at'),
+	coverSaved: integer('cover_saved').notNull().default(0),
+	coverPrimary: text('cover_primary'),
+	coverSupport1: text('cover_support_1'),
+	coverSupport2: text('cover_support_2'),
+	coverSupport3: text('cover_support_3'),
+	/** 1 after automatic supports are close enough that later adds must not replace them. */
+	coverAutoStopped: integer('cover_auto_stopped').notNull().default(0)
+});
+
+export const savedSearches = sqliteTable('saved_searches', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull(),
+	type: text('type').notNull(),
+	query: text('query').notNull(),
+	rating: text('rating').notNull(),
+	media: text('media').notNull(),
+	sort: text('sort').notNull(),
+	coverSaved: integer('cover_saved').notNull().default(0),
+	coverPrimary: text('cover_primary'),
+	coverSupport1: text('cover_support_1'),
+	coverSupport2: text('cover_support_2'),
+	coverSupport3: text('cover_support_3'),
+	/** 1 after automatic supports are close enough that later opens must not replace them. */
+	coverAutoStopped: integer('cover_auto_stopped').notNull().default(0),
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
 });
 
 export const albumItems = sqliteTable('album_items', {

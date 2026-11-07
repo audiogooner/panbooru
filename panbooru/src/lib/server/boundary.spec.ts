@@ -181,7 +181,19 @@ describe('secret and origin boundary', () => {
 		const sessionText = await session.text();
 		const loginHtml = render(LoginPage).body;
 		const settingsHtml = render(SettingsPage, {
-			props: { data: { configured: true, userId } }
+			props: {
+				params: {},
+				form: null,
+				data: {
+					configured: true,
+					userId,
+					authenticated: true,
+					removalId: null,
+					albums: [],
+					albumSidebar: { temporary: [], pinned: [] },
+					savedSearches: []
+				}
+			}
 		}).body;
 		for (const secret of secrets) {
 			expect(settingsText).not.toContain(secret);

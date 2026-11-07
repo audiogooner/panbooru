@@ -126,7 +126,43 @@ create table derivatives (
 );
 `;
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 8;
+
+const collectionMigration = `
+alter table albums add column updated_at integer not null default 0;
+alter table albums add column pinned integer not null default 0;
+alter table albums add column pin_order integer;
+alter table albums add column temporary_open integer not null default 0;
+alter table albums add column temporary_opened_at integer;
+alter table albums add column cover_saved integer not null default 0;
+alter table albums add column cover_primary text;
+alter table albums add column cover_support_1 text;
+alter table albums add column cover_support_2 text;
+alter table albums add column cover_support_3 text;
+update albums set updated_at = created_at;
+create table saved_searches (
+	id text primary key,
+	name text not null,
+	type text not null check (type in ('search', 'artist', 'character')),
+	query text not null,
+	rating text not null,
+	media text not null,
+	sort text not null check (sort in ('Newest', 'Oldest', 'Highest score', 'Random')),
+	cover_saved integer not null default 0,
+	cover_primary text,
+	cover_support_1 text,
+	cover_support_2 text,
+	cover_support_3 text,
+	created_at integer not null,
+	updated_at integer not null
+);
+create unique index saved_searches_applied on saved_searches (query, rating, media, sort);
+`;
+
+const coverAutoMigration = `
+alter table albums add column cover_auto_stopped integer not null default 0;
+alter table saved_searches add column cover_auto_stopped integer not null default 0;
+`;
 
 const tagMigration = `
 create table source_tags (
@@ -185,6 +221,26 @@ export function openDatabase(dataDir: string) {
 			sqlite
 				.prepare('insert into schema_migrations (version, applied_at, checksum) values (5, ?, ?)')
 				.run(Date.now(), 'derivatives-v5');
+		})();
+	}
+	const collections = sqlite
+		.prepare('select version from schema_migrations where version = 6')
+		.get();
+	if (!collections) {
+		sqlite.transaction(() => {
+			sqlite.exec(collectionMigration);
+			sqlite
+				.prepare('insert into schema_migrations (version, applied_at, checksum) values (6, ?, ?)')
+				.run(Date.now(), 'collections-v6');
+		})();
+	}
+	const coverAuto = sqlite.prepare('select version from schema_migrations where version = 8').get();
+	if (!coverAuto) {
+		sqlite.transaction(() => {
+			sqlite.exec(coverAutoMigration);
+			sqlite
+				.prepare('insert into schema_migrations (version, applied_at, checksum) values (8, ?, ?)')
+				.run(Date.now(), 'cover-auto-v8');
 		})();
 	}
 	const newest = sqlite.prepare('select max(version) as version from schema_migrations').get() as {

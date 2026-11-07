@@ -10,6 +10,7 @@ import {
 	postSnapshots,
 	savedItems
 } from '#lib/server/db/schema.ts';
+import { refreshAutomaticAlbumCover } from '#lib/server/library/collections.ts';
 import {
 	expireRemovals,
 	recordHold,
@@ -216,7 +217,7 @@ export function listFavorites(db: AppDatabase): FavoritePost[] {
 
 export function createAlbum(db: AppDatabase, name: string, now = Date.now()) {
 	const id = randomUUID();
-	db.insert(albums).values({ id, name, createdAt: now }).run();
+	db.insert(albums).values({ id, name, createdAt: now, updatedAt: now }).run();
 	return { id, name };
 }
 
@@ -286,19 +287,26 @@ export function saveAlbumMembership(
 	albumId: string,
 	now = Date.now()
 ): SaveResult {
-	return db.transaction((tx) => {
+	const saved = db.transaction((tx) => {
 		const item = ensureItem(tx, metadata, now);
-		tx.insert(albumItems)
+		const inserted = tx
+			.insert(albumItems)
 			.values({ albumId, itemId: item.id, addedAt: now })
 			.onConflictDoNothing()
 			.run();
+		if (inserted.changes > 0) {
+			tx.update(albums).set({ updatedAt: now }).where(eq(albums.id, albumId)).run();
+		}
 		ensureOriginalJob(tx, item.id, metadata.fileUrl);
 		return {
 			itemId: item.id,
 			membership: 'album' as const,
-			original: originalState(tx, item.mediaId)
+			original: originalState(tx, item.mediaId),
+			added: inserted.changes > 0
 		};
 	});
+	if (saved.added) void refreshAutomaticAlbumCover(db, albumId);
+	return { itemId: saved.itemId, membership: saved.membership, original: saved.original };
 }
 
 export type MembershipRemoval = {
@@ -337,6 +345,9 @@ export function removeMemberships(
 				db.$client
 					.prepare('delete from album_items where album_id = ? and item_id = ?')
 					.run(removal.albumId, removal.itemId);
+				db.$client
+					.prepare('update albums set updated_at = ? where id = ?')
+					.run(now, removal.albumId);
 				entries.push({
 					itemId: removal.itemId,
 					kind: 'album' as const,
