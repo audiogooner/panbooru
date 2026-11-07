@@ -177,7 +177,7 @@ export function readSession(request: Request, services: AppServices) {
 
 function sameOrigin(request: Request) {
 	const origin = request.headers.get('origin');
-	if (!origin) return false;
+	if (!origin) return true;
 	return origin === new URL(request.url).origin;
 }
 
@@ -212,7 +212,13 @@ export async function dispatch(request: Request, services: AppServices): Promise
 	const url = new URL(request.url);
 	if (request.method === 'GET' && url.pathname === '/health') return null;
 
-	if ((request.method === 'POST' || request.method === 'DELETE') && !sameOrigin(request)) {
+	const readsMedia =
+		(request.method === 'GET' || request.method === 'HEAD') &&
+		url.pathname.startsWith('/api/media/');
+	if (
+		(request.method === 'POST' || request.method === 'DELETE' || readsMedia) &&
+		!sameOrigin(request)
+	) {
 		return jsonError('FORBIDDEN', 'Cross-origin request rejected', 403);
 	}
 
