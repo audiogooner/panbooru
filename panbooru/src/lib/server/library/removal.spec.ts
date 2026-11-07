@@ -9,8 +9,10 @@ import { promoteOriginal } from '#lib/server/library/original.ts';
 import { undoRemoval } from '#lib/server/library/removal.ts';
 import {
 	createAlbum,
+	listAlbumPosts,
 	listFavorites,
 	removeFavoriteMembership,
+	removeMemberships,
 	saveAlbumMembership,
 	saveFavorite,
 	type PostMetadata
@@ -148,6 +150,99 @@ describe('removal hold', () => {
 		expect(existsSync(file)).toBe(true);
 		expect(existsSync(otherFile)).toBe(true);
 		expect(count(db, 'saved_items')).toBe(2);
+	});
+
+	it('records one action when one call removes a favorite and an album membership', async () => {
+		const { db, dataDir } = await database();
+		const favorite = saveFavorite(db, metadata, removedAt - 20);
+		const album = createAlbum(db, 'Landscapes', removedAt - 15);
+		const albumPost = saveAlbumMembership(
+			db,
+			{ ...metadata, remoteId: '11' },
+			album.id,
+			removedAt - 15
+		);
+		expect(
+			removeMemberships(
+				db,
+				dataDir,
+				[
+					{ itemId: favorite.itemId, kind: 'favorite' },
+					{ itemId: albumPost.itemId, kind: 'album', albumId: album.id }
+				],
+				removedAt
+			)
+		).toBe(true);
+		expect(count(db, 'removal_actions')).toBe(1);
+		expect(count(db, 'favorites')).toBe(0);
+		expect(listAlbumPosts(db, album.id)).toEqual([]);
+		const rows = db.$client
+			.prepare(
+				`select item_id as itemId, kind, album_id as albumId, added_at as addedAt
+				 from removal_memberships order by added_at`
+			)
+			.all();
+		expect(rows).toEqual([
+			{ itemId: favorite.itemId, kind: 'favorite', albumId: null, addedAt: removedAt - 20 },
+			{ itemId: albumPost.itemId, kind: 'album', albumId: album.id, addedAt: removedAt - 15 }
+		]);
+	});
+
+	it('restores the favorite and the album post from that action', async () => {
+		const { db, dataDir } = await database();
+		const favorite = saveFavorite(db, metadata, removedAt - 20);
+		const album = createAlbum(db, 'Landscapes', removedAt - 15);
+		const albumPost = saveAlbumMembership(
+			db,
+			{ ...metadata, remoteId: '11' },
+			album.id,
+			removedAt - 15
+		);
+		removeMemberships(
+			db,
+			dataDir,
+			[
+				{ itemId: favorite.itemId, kind: 'favorite' },
+				{ itemId: albumPost.itemId, kind: 'album', albumId: album.id }
+			],
+			removedAt
+		);
+		const action = db.$client.prepare('select id from removal_actions').get() as { id: string };
+		expect(undoRemoval(db, dataDir, action.id, removedAt + 1)).toBe(true);
+		expect(listFavorites(db).map((post) => post.id)).toEqual([favorite.itemId]);
+		expect(listAlbumPosts(db, album.id).map((post) => post.id)).toEqual([albumPost.itemId]);
+	});
+
+	it('drops both holds together and keeps a post another membership retains', async () => {
+		const { db, dataDir } = await database();
+		const album = createAlbum(db, 'Landscapes', removedAt - 30);
+		const kept = saveFavorite(db, metadata, removedAt - 20);
+		saveAlbumMembership(db, metadata, album.id, removedAt - 20);
+		const keptFile = originalFile(db, dataDir, kept.itemId, Buffer.from('sunset-bytes'));
+		const dropped = saveAlbumMembership(
+			db,
+			{ ...metadata, remoteId: '11' },
+			album.id,
+			removedAt - 15
+		);
+		const droppedFile = originalFile(db, dataDir, dropped.itemId, Buffer.from('forest-bytes'));
+		const later = saveFavorite(db, { ...metadata, remoteId: '12' }, removedAt);
+		const laterFile = originalFile(db, dataDir, later.itemId, Buffer.from('ridge-bytes'));
+		removeMemberships(
+			db,
+			dataDir,
+			[
+				{ itemId: kept.itemId, kind: 'favorite' },
+				{ itemId: dropped.itemId, kind: 'album', albumId: album.id }
+			],
+			removedAt
+		);
+		removeFavoriteMembership(db, dataDir, later.itemId, removedAt + 1);
+		expect(existsSync(keptFile)).toBe(true);
+		expect(existsSync(droppedFile)).toBe(false);
+		expect(existsSync(laterFile)).toBe(true);
+		expect(count(db, 'saved_items')).toBe(2);
+		expect(count(db, 'removal_memberships')).toBe(1);
 	});
 });
 

@@ -5,8 +5,7 @@ import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import {
 	createAlbum,
 	getAlbum,
-	removeAlbumMembershipRow,
-	removeFavoriteMembership,
+	removeMemberships,
 	saveAlbumMembership,
 	saveFavorite,
 	type PostMetadata
@@ -127,23 +126,22 @@ export async function handleLibrary(
 
 	const favoriteItem = url.pathname.match(/^\/api\/library\/favorites\/([^/]+)$/);
 	if (request.method === 'DELETE' && favoriteItem) {
-		const removed = removeFavoriteMembership(
-			services.db,
-			services.dataDir,
-			decodeURIComponent(favoriteItem[1] ?? '')
-		);
+		const removed = removeMemberships(services.db, services.dataDir, [
+			{ itemId: decodeURIComponent(favoriteItem[1] ?? ''), kind: 'favorite' }
+		]);
 		if (!removed) return jsonError('NOT_FOUND', 'Favorite was not found', 404);
 		return jsonData({ removed: true });
 	}
 
 	const albumItem = url.pathname.match(/^\/api\/library\/albums\/([^/]+)\/items\/([^/]+)$/);
 	if (request.method === 'DELETE' && albumItem) {
-		const removed = removeAlbumMembershipRow(
-			services.db,
-			services.dataDir,
-			decodeURIComponent(albumItem[1] ?? ''),
-			decodeURIComponent(albumItem[2] ?? '')
-		);
+		const removed = removeMemberships(services.db, services.dataDir, [
+			{
+				itemId: decodeURIComponent(albumItem[2] ?? ''),
+				kind: 'album',
+				albumId: decodeURIComponent(albumItem[1] ?? '')
+			}
+		]);
 		if (!removed) return jsonError('NOT_FOUND', 'Album post was not found', 404);
 		return jsonData({ removed: true });
 	}

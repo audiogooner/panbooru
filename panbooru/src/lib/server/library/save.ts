@@ -11,7 +11,6 @@ import {
 	savedItems
 } from '#lib/server/db/schema.ts';
 import { expireRemovals, recordHold, releaseHeldFiles } from '#lib/server/library/removal.ts';
-import { type SavedPost } from '#lib/server/library/retention.ts';
 
 export type PostMetadata = {
 	source: string;
@@ -237,21 +236,56 @@ export function saveAlbumMembership(
 	});
 }
 
-function membership(
+export type MembershipRemoval = {
+	itemId: string;
+	kind: 'favorite' | 'album';
+	albumId?: string | null;
+};
+
+export function removeMemberships(
 	db: AppDatabase,
-	itemId: string
-): (SavedPost & { mediaId: string | null }) | null {
-	const item = db.select().from(savedItems).where(eq(savedItems.id, itemId)).get();
-	if (!item) return null;
-	const favorite = db.select().from(favorites).where(eq(favorites.itemId, itemId)).get();
-	const rows = db.select().from(albumItems).where(eq(albumItems.itemId, itemId)).all();
-	return {
-		id: item.id,
-		favorite: Boolean(favorite),
-		albumIds: rows.map((row) => row.albumId),
-		originalId: item.mediaId ?? '',
-		mediaId: item.mediaId
-	};
+	dataDir: string,
+	removals: MembershipRemoval[],
+	now = Date.now()
+) {
+	expireRemovals(db, dataDir, now);
+	const paths = db.$client.transaction(() => {
+		const entries = [];
+		for (const removal of removals) {
+			if (removal.kind === 'favorite') {
+				const row = db.$client
+					.prepare('select favorited_at as addedAt from favorites where item_id = ?')
+					.get(removal.itemId) as { addedAt: number } | undefined;
+				if (!row) continue;
+				db.$client.prepare('delete from favorites where item_id = ?').run(removal.itemId);
+				entries.push({
+					itemId: removal.itemId,
+					kind: 'favorite' as const,
+					albumId: null,
+					addedAt: row.addedAt
+				});
+			} else if (removal.albumId) {
+				const row = db.$client
+					.prepare('select added_at as addedAt from album_items where album_id = ? and item_id = ?')
+					.get(removal.albumId, removal.itemId) as { addedAt: number } | undefined;
+				if (!row) continue;
+				db.$client
+					.prepare('delete from album_items where album_id = ? and item_id = ?')
+					.run(removal.albumId, removal.itemId);
+				entries.push({
+					itemId: removal.itemId,
+					kind: 'album' as const,
+					albumId: removal.albumId,
+					addedAt: row.addedAt
+				});
+			}
+		}
+		if (!entries.length) return null;
+		return recordHold(db, entries, now);
+	})();
+	if (!paths) return false;
+	releaseHeldFiles(dataDir, paths);
+	return true;
 }
 
 export function removeFavoriteMembership(
@@ -260,18 +294,7 @@ export function removeFavoriteMembership(
 	itemId: string,
 	now = Date.now()
 ) {
-	expireRemovals(db, dataDir, now);
-	const current = membership(db, itemId);
-	if (!current?.favorite) return false;
-	const row = db.$client
-		.prepare('select favorited_at as addedAt from favorites where item_id = ?')
-		.get(itemId) as { addedAt: number };
-	const paths = db.$client.transaction(() => {
-		db.$client.prepare('delete from favorites where item_id = ?').run(itemId);
-		return recordHold(db, [{ itemId, kind: 'favorite', albumId: null, addedAt: row.addedAt }], now);
-	})();
-	releaseHeldFiles(dataDir, paths);
-	return true;
+	return removeMemberships(db, dataDir, [{ itemId, kind: 'favorite' }], now);
 }
 
 export function removeAlbumMembershipRow(
@@ -281,18 +304,5 @@ export function removeAlbumMembershipRow(
 	itemId: string,
 	now = Date.now()
 ) {
-	expireRemovals(db, dataDir, now);
-	const current = membership(db, itemId);
-	if (!current?.albumIds.includes(albumId)) return false;
-	const row = db.$client
-		.prepare('select added_at as addedAt from album_items where album_id = ? and item_id = ?')
-		.get(albumId, itemId) as { addedAt: number };
-	const paths = db.$client.transaction(() => {
-		db.$client
-			.prepare('delete from album_items where album_id = ? and item_id = ?')
-			.run(albumId, itemId);
-		return recordHold(db, [{ itemId, kind: 'album', albumId, addedAt: row.addedAt }], now);
-	})();
-	releaseHeldFiles(dataDir, paths);
-	return true;
+	return removeMemberships(db, dataDir, [{ itemId, kind: 'album', albumId }], now);
 }
