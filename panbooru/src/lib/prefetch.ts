@@ -1,4 +1,5 @@
 import type { ExplorationPost } from '#lib/navigation.ts';
+import { warmTagMeta } from '#lib/tag-meta.ts';
 import type { Attachment } from 'svelte/attachments';
 
 const warmed = new Set<string>();
@@ -32,9 +33,14 @@ export function neighborPrefetch(
 	};
 }
 
+export function warmExplorationPost(post: ExplorationPost | undefined) {
+	if (!post) return;
+	warmTagMeta(post.tags);
+	warmPost(post.mediaRef, post.kind);
+}
+
 function warmNeighbor(neighbor: ExplorationPost | undefined) {
-	if (!neighbor?.mediaRef) return;
-	warmPost(neighbor.mediaRef, neighbor.kind);
+	warmExplorationPost(neighbor);
 }
 
 function warm(url: string, method: 'GET' | 'HEAD' = 'GET') {

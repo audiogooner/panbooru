@@ -6,7 +6,8 @@
 	import Icon from '#lib/Icon.svelte';
 	import Thumbnail from '#lib/Thumbnail.svelte';
 	import Viewer from '#lib/Viewer.svelte';
-	import { warmPost } from '#lib/prefetch.ts';
+	import { warmExplorationPost } from '#lib/prefetch.ts';
+	import { warmTagMeta } from '#lib/tag-meta.ts';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
 	import { favoriteOutline, justifyRows, squirclePath, squircleRadius } from '#lib/justify.ts';
 	import { replaceTag } from '#lib/navigation.ts';
@@ -383,18 +384,6 @@
 		publishRow(readRowHeight());
 	}
 
-	async function onrowheight(value: number) {
-		const anchor = captureAnchor();
-		publishRow(value);
-		try {
-			localStorage.setItem(ROW_HEIGHT_KEY, String(value));
-		} catch {
-			// Preference storage is unavailable in this browser context.
-		}
-		await tick();
-		restoreAnchor(anchor);
-	}
-
 	function captureAnchor() {
 		const scroller = document.getElementById('scroll');
 		if (!scroller) return null;
@@ -557,6 +546,7 @@
 				return;
 			}
 			storePosts(posts);
+			warmResultTags(posts);
 			const filled = posts.length < pageSize;
 			rememberResultsFilled(viewId, filled);
 			rememberResultPage(viewId, filled ? 0 : 1);
@@ -572,6 +562,10 @@
 		if (follow && id === requestId) await ensureFilled();
 	}
 
+	function warmResultTags(posts: { tags: string[] }[]) {
+		warmTagMeta([...new Set(posts.flatMap((post) => post.tags))]);
+	}
+
 	async function loadMore() {
 		const view = activeView();
 		if (paging || resultsFilled(view.id) || loading || error || view.posts.length === 0) return;
@@ -585,6 +579,7 @@
 			const posts = await fetchPage(tags, page);
 			if (id !== requestId || !posts) return;
 			appendPosts(posts);
+			warmResultTags(posts);
 			const filled = posts.length < pageSize;
 			rememberResultsFilled(viewId, filled);
 			if (!filled) rememberResultPage(viewId, page + 1);
@@ -1088,11 +1083,9 @@
 				applied={{ rating: applied.rating, media: applied.media, sort: applied.sort }}
 				saved={savedMatch}
 				{bookmarkLabel}
-				{rowHeight}
 				oninput={suggest}
 				onsearch={search}
 				{onchrome}
-				{onrowheight}
 				onbookmark={requestSaveSearch}
 				onexitselection={exitSelection}
 				onselectall={toggleSelectAll}
@@ -1155,8 +1148,8 @@
 									style:width="{width}px"
 									style:height="{height}px"
 									style:--squircle={`path('${squirclePath(width, height, squircleRadius)}')`}
-									onpointerenter={() => warmPost(post.mediaRef, post.kind)}
-									onfocusin={() => warmPost(post.mediaRef, post.kind)}
+									onpointerenter={() => warmExplorationPost(post)}
+									onfocusin={() => warmExplorationPost(post)}
 									ondragstart={(event) => onTileDrag(event, post)}
 									oncontextmenu={(event) => onTileMenu(event, post)}
 								>

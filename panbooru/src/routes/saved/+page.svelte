@@ -6,6 +6,7 @@
 	import { activeView, commitNavigation, navigation, storePosts } from '#lib/explore.svelte.ts';
 	import { newView } from '#lib/navigation.ts';
 	import { openContextMenu } from '#lib/menu.svelte.ts';
+	import { warmTagMeta } from '#lib/tag-meta.ts';
 	import {
 		deselectAll as clearSelection,
 		exitSelection as leaveSelection,
@@ -247,7 +248,9 @@
 					}[];
 				};
 			};
-			storePosts(payload.data?.posts ?? []);
+			const posts = payload.data?.posts ?? [];
+			storePosts(posts);
+			warmTagMeta([...new Set(posts.flatMap((post) => post.tags))]);
 		}
 		await goto(resolve('/'));
 	}

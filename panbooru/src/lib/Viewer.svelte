@@ -12,7 +12,7 @@
 		writePlaybackPreference
 	} from '#lib/playback.ts';
 	import { neighborPrefetch, withRecipe } from '#lib/prefetch.ts';
-	import { missingTagNames, readTagMeta, writeTagMeta, type TagMeta } from '#lib/tag-meta.ts';
+	import { ensureTagMeta, missingTagNames, readTagMeta, type TagMeta } from '#lib/tag-meta.ts';
 	import {
 		doubleClickZoom,
 		initialScale,
@@ -683,25 +683,11 @@
 		URL.revokeObjectURL(url);
 	}
 
-	async function lookupTags(id: string, names: string[], missing: string[], signal: AbortSignal) {
-		try {
-			const response = await fetch('/api/source/gelbooru/tags', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ names: missing }),
-				signal
-			});
-			if (!response.ok) return;
-			const body = (await response.json()) as {
-				data?: { tags?: { name: string; category: string; count: number }[] };
-			};
-			if (signal.aborted || post.id !== id) return;
-			writeTagMeta(body.data?.tags ?? []);
-			tagMeta = readTagMeta(names);
-			tagMetaPost = id;
-		} catch {
-			// Categories stay in the general group when the lookup is unavailable.
-		}
+	async function lookupTags(id: string, names: string[], signal: AbortSignal) {
+		await ensureTagMeta(names, signal);
+		if (signal.aborted || post.id !== id) return;
+		tagMeta = readTagMeta(names);
+		tagMetaPost = id;
 	}
 
 	function trackTags() {
@@ -710,10 +696,9 @@
 		// Seed from the session cache so known tags regroup immediately.
 		tagMeta = readTagMeta(names);
 		tagMetaPost = id;
-		const missing = missingTagNames(names);
-		if (missing.length === 0) return;
+		if (missingTagNames(names).length === 0) return;
 		const controller = new AbortController();
-		void lookupTags(id, names, missing, controller.signal);
+		void lookupTags(id, names, controller.signal);
 		return () => controller.abort();
 	}
 </script>
