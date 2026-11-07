@@ -1,4 +1,5 @@
 import { browser } from '$app/env';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { goto } from '$app/navigation';
 import {
 	appendTag,
@@ -106,4 +107,47 @@ export function hideViewer() {
 export function storePosts(posts: ExplorationPost[]) {
 	const id = navigation.activeId;
 	navigation.views = navigation.views.map((view) => (view.id === id ? { ...view, posts } : view));
+}
+
+export function appendPosts(posts: ExplorationPost[]) {
+	const id = navigation.activeId;
+	navigation.views = navigation.views.map((view) => {
+		if (view.id !== id) return view;
+		const seen = view.posts.map((post) => post.id);
+		const extra = posts.filter((post) => post.id && !seen.includes(post.id));
+		return extra.length ? { ...view, posts: [...view.posts, ...extra] } : view;
+	});
+}
+
+const resultPages = new SvelteMap<string, number>();
+const filledResults = new SvelteSet<string>();
+
+/** Next 0-based Gelbooru page for this view. Already loaded full pages count even if the cursor was reset. */
+export function resultPage(viewId: string, loadedCount: number, pageSize: number) {
+	const fromLoaded = pageSize > 0 ? Math.floor(loadedCount / pageSize) : 0;
+	return Math.max(resultPages.get(viewId) ?? 0, fromLoaded);
+}
+
+export function rememberResultPage(viewId: string, page: number) {
+	resultPages.set(viewId, page);
+}
+
+export function resultsFilled(viewId: string) {
+	return filledResults.has(viewId);
+}
+
+export function rememberResultsFilled(viewId: string, filled: boolean) {
+	if (filled) filledResults.add(viewId);
+	else filledResults.delete(viewId);
+}
+
+const resultTags = new SvelteMap<string, string>();
+
+/** Tags for every page of this view, including the sort tag and random seed. */
+export function resultTagsFor(viewId: string) {
+	return resultTags.get(viewId) ?? '';
+}
+
+export function rememberResultTags(viewId: string, tags: string) {
+	resultTags.set(viewId, tags);
 }

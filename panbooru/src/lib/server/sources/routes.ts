@@ -40,16 +40,19 @@ export async function handleSource(
 		const body = (await request.json().catch(() => null)) as {
 			query?: unknown;
 			ratings?: unknown;
+			page?: unknown;
 		} | null;
 		const query = typeof body?.query === 'string' ? body.query : '';
 		const ratings = Array.isArray(body?.ratings)
 			? body.ratings.filter((rating): rating is string => typeof rating === 'string')
 			: [];
+		const page = Number(body?.page);
+		const pid = Number.isInteger(page) && page >= 0 ? String(page) : '0';
 		const ratingText = compileRatingTags(ratings);
 		const tags = ratingText ? `${query} ${ratingText}`.trim() : query;
 		const result = await gelbooruJson(
 			base,
-			sourceParams(services, { s: 'post', q: 'index', tags, limit: '20' }),
+			sourceParams(services, { s: 'post', q: 'index', tags, limit: '20', pid }),
 			services.fetchUpstream,
 			services.log
 		);

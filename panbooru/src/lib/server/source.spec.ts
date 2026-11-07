@@ -260,4 +260,62 @@ describe('gelbooru source and media', () => {
 		expect(tags).toContain('id:10');
 		expect(tags).toContain('rating:explicit');
 	});
+
+	it('requests the next pid for a non-date sort and keeps that sort tag', async () => {
+		const { app, cookie, fixture } = await boot();
+		const score = await app.fetch('/api/source/gelbooru/search', {
+			method: 'POST',
+			headers: { origin: app.origin, cookie, 'content-type': 'application/json' },
+			body: JSON.stringify({ query: 'forest sort:score', page: 1 })
+		});
+		expect(score.status).toBe(200);
+		const scoreParams = new URL(
+			[...fixture.requests].reverse().find((entry) => entry.includes('s=post')) ?? '',
+			'http://127.0.0.1'
+		).searchParams;
+		expect(scoreParams.get('pid')).toBe('1');
+		expect(scoreParams.get('limit')).toBe('20');
+		expect(scoreParams.get('tags')).toContain('sort:score');
+		expect(scoreParams.get('tags')).not.toMatch(/id:</);
+
+		fixture.requests.length = 0;
+		const random = await app.fetch('/api/source/gelbooru/search', {
+			method: 'POST',
+			headers: { origin: app.origin, cookie, 'content-type': 'application/json' },
+			body: JSON.stringify({ query: 'forest sort:random:4242', page: 2 })
+		});
+		expect(random.status).toBe(200);
+		const randomParams = new URL(
+			[...fixture.requests].reverse().find((entry) => entry.includes('s=post')) ?? '',
+			'http://127.0.0.1'
+		).searchParams;
+		expect(randomParams.get('pid')).toBe('2');
+		expect(randomParams.get('tags')).toContain('sort:random:4242');
+		expect(randomParams.get('tags')).not.toMatch(/id:</);
+
+		fixture.requests.length = 0;
+		const oldest = await app.fetch('/api/source/gelbooru/search', {
+			method: 'POST',
+			headers: { origin: app.origin, cookie, 'content-type': 'application/json' },
+			body: JSON.stringify({ query: 'forest sort:id:asc', page: 1 })
+		});
+		expect(oldest.status).toBe(200);
+		const oldestParams = new URL(
+			[...fixture.requests].reverse().find((entry) => entry.includes('s=post')) ?? '',
+			'http://127.0.0.1'
+		).searchParams;
+		expect(oldestParams.get('pid')).toBe('1');
+		expect(oldestParams.get('tags')).toBe('forest sort:id:asc');
+		expect(oldestParams.get('tags')).not.toMatch(/id:[<>]/);
+	});
+
+	it('keeps score: and id: in the upstream tag text', async () => {
+		const { app, cookie, fixture } = await boot();
+		const found = await search(app, cookie, 'score:>10 id:10', ['explicit']);
+		expect(found.status).toBe(200);
+		const tags = upstreamTags(fixture.requests);
+		expect(tags).toContain('score:>10');
+		expect(tags).toContain('id:10');
+		expect(tags).toContain('rating:explicit');
+	});
 });
