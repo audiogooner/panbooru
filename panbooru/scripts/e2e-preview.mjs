@@ -36,33 +36,40 @@ const fixture = createServer((request, response) => {
 		return;
 	}
 	const tags = url.searchParams.get('tags') ?? '';
-	const missing = tags.split(/\s+/).includes('missing');
+	const words = tags.split(/\s+/);
+	const missing = words.includes('missing');
+	const huge = words.includes('huge');
+	const post = missing
+		? {
+				id: 11,
+				tags: 'missing',
+				file_url: 'https://cdn.fixture.test/images/missing.jpg',
+				preview_url: 'https://cdn.fixture.test/images/missing.jpg',
+				width: 80,
+				height: 40,
+				rating: 'general'
+			}
+		: huge
+			? {
+					id: 12,
+					tags: 'huge landscape',
+					file_url: 'https://cdn.fixture.test/images/huge.jpg',
+					preview_url: 'https://cdn.fixture.test/images/huge.jpg',
+					width: 4000,
+					height: 3000,
+					rating: 'general'
+				}
+			: {
+					id: 10,
+					tags: 'landscape sunset',
+					file_url: 'https://cdn.fixture.test/images/a.jpg',
+					preview_url: 'https://cdn.fixture.test/images/a.jpg',
+					width: 100,
+					height: 50,
+					rating: 'general'
+				};
 	response.writeHead(200, { 'content-type': 'application/json' });
-	response.end(
-		JSON.stringify({
-			post: [
-				missing
-					? {
-							id: 11,
-							tags: 'missing',
-							file_url: 'https://cdn.fixture.test/images/missing.jpg',
-							preview_url: 'https://cdn.fixture.test/images/missing.jpg',
-							width: 80,
-							height: 40,
-							rating: 'general'
-						}
-					: {
-							id: 10,
-							tags: 'landscape sunset',
-							file_url: 'https://cdn.fixture.test/images/a.jpg',
-							preview_url: 'https://cdn.fixture.test/images/a.jpg',
-							width: 100,
-							height: 50,
-							rating: 'general'
-						}
-			]
-		})
-	);
+	response.end(JSON.stringify({ post: [post] }));
 });
 
 await new Promise((resolve) => fixture.listen(0, '127.0.0.1', () => resolve(undefined)));

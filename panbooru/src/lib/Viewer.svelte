@@ -1,6 +1,18 @@
 <script lang="ts">
 	import { viewerChrome } from '#lib/explore.svelte.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
+	import {
+		doubleClickZoom,
+		initialScale,
+		initialZoom,
+		needsOriginal,
+		panBy,
+		retainZoom,
+		wheelZoom,
+		type Zoom
+	} from '#lib/zoom.ts';
+
+	const DETAILS_PANEL = 292;
 
 	let {
 		post,
@@ -13,9 +25,123 @@
 	} = $props();
 	let tagsOpen = $state(false);
 	let albumName = $state('');
+	let root = $state<HTMLElement | null>(null);
+	let viewportWidth = $state(1);
+	let viewportHeight = $state(1);
+	let manualZoom = $state<Zoom | null>(null);
+	let manualId = $state('');
+	let dragging = $state(false);
+	let dragAt = { x: 0, y: 0 };
+
+	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
+	const manual = $derived(manualZoom !== null && manualId === post.id);
+	const frameWidth = $derived(
+		Math.max(1, viewportWidth - (manual || !tagsOpen ? 0 : DETAILS_PANEL))
+	);
+	const zoom = $derived(
+		manual && manualZoom
+			? retainZoom(manualZoom, image, { width: viewportWidth, height: viewportHeight })
+			: initialZoom(image, { width: frameWidth, height: viewportHeight })
+	);
+	const left = $derived(
+		(manual ? viewportWidth : frameWidth) / 2 + zoom.x - (image.width * zoom.scale) / 2
+	);
+	const top = $derived(viewportHeight / 2 + zoom.y - (image.height * zoom.scale) / 2);
+	const foreground = $derived(
+		`/api/media/${post.mediaRef}${needsOriginal(image, zoom.scale) ? '' : '?recipe=display'}`
+	);
+	const canPan = $derived(
+		image.width * zoom.scale > (manual ? viewportWidth : frameWidth) + 0.5 ||
+			image.height * zoom.scale > viewportHeight + 0.5
+	);
+
+	function area() {
+		return manual
+			? { width: viewportWidth, height: viewportHeight }
+			: { width: frameWidth, height: viewportHeight };
+	}
+
+	function remember(next: Zoom) {
+		if (manual) manualZoom = next;
+		else {
+			manualZoom = {
+				scale: next.scale,
+				x: frameWidth / 2 + next.x - viewportWidth / 2,
+				y: next.y
+			};
+		}
+		manualId = post.id;
+	}
+
+	function localPoint(event: { clientX: number; clientY: number }) {
+		const rect = root?.getBoundingClientRect();
+		return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) };
+	}
+
+	function typing(event: KeyboardEvent) {
+		const target = event.target;
+		return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+	}
 
 	function onkeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') onclose();
+		if (event.key === 'Escape') {
+			if (document.fullscreenElement) {
+				void document.exitFullscreen();
+				return;
+			}
+			onclose();
+			return;
+		}
+		if ((event.key === 'f' || event.key === 'F') && !typing(event)) {
+			event.preventDefault();
+			if (document.fullscreenElement) void document.exitFullscreen();
+			else void root?.requestFullscreen();
+		}
+	}
+
+	function onwheel(event: WheelEvent) {
+		if (!event.ctrlKey && !event.metaKey) return;
+		event.preventDefault();
+		remember(wheelZoom(zoom, image, area(), localPoint(event), event.deltaY));
+	}
+
+	function ondblclick(event: MouseEvent) {
+		const next = doubleClickZoom(zoom, image, area(), localPoint(event));
+		const baseline = initialScale(image, area());
+		if (next.scale <= baseline + 1e-4 && next.x === 0 && next.y === 0) {
+			manualZoom = null;
+			manualId = '';
+			return;
+		}
+		remember(next);
+	}
+
+	function startDrag(event: PointerEvent) {
+		if (event.button !== 0) return;
+		dragging = true;
+		dragAt = { x: event.clientX, y: event.clientY };
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+	}
+
+	function drag(event: PointerEvent) {
+		if (!dragging) return;
+		const dx = event.clientX - dragAt.x;
+		const dy = event.clientY - dragAt.y;
+		dragAt = { x: event.clientX, y: event.clientY };
+		const next = panBy(zoom, image, area(), dx, dy);
+		if (next.x === zoom.x && next.y === zoom.y) return;
+		remember(next);
+	}
+
+	function endDrag() {
+		dragging = false;
+	}
+
+	function viewerRoot(node: HTMLElement) {
+		root = node;
+		return () => {
+			if (root === node) root = null;
+		};
 	}
 
 	function postBody() {
@@ -72,9 +198,34 @@
 
 <svelte:window {onkeydown} />
 
-<div class="viewer">
+<div
+	class="viewer"
+	{@attach viewerRoot}
+	bind:clientWidth={viewportWidth}
+	bind:clientHeight={viewportHeight}
+	onwheel={onwheel}
+>
 	<img class="backdrop" src={`/api/media/${post.mediaRef}?recipe=backdrop`} alt="" />
-	<img class="full" src={`/api/media/${post.mediaRef}?recipe=display`} alt={post.tags.join(' ')} />
+	<div
+		class={['stage', { pannable: canPan, grabbing: dragging }]}
+		role="application"
+		aria-label="Artwork"
+		data-scale={zoom.scale}
+		data-x={zoom.x}
+		data-y={zoom.y}
+		style:left="{left}px"
+		style:top="{top}px"
+		style:width="{image.width}px"
+		style:height="{image.height}px"
+		style:transform="scale({zoom.scale})"
+		onpointerdown={startDrag}
+		onpointermove={drag}
+		onpointerup={endDrag}
+		onpointercancel={endDrag}
+		ondblclick={ondblclick}
+	>
+		<img class="full" src={foreground} alt={post.tags.join(' ')} draggable="false" />
+	</div>
 	<button class="back" type="button" onclick={onclose}>Back</button>
 	<button class="download" type="button" onclick={downloadOriginal}>Download</button>
 	<button class="favorite" type="button" onclick={favorite}>Favorite</button>
@@ -127,14 +278,30 @@
 		pointer-events: none;
 	}
 
-	.full {
-		position: relative;
+	.stage {
+		position: absolute;
 		z-index: 1;
+		transform-origin: 0 0;
+		touch-action: none;
+		user-select: none;
+	}
+
+	.stage.pannable {
+		cursor: grab;
+	}
+
+	.stage.grabbing {
+		cursor: grabbing;
+	}
+
+	.full {
 		display: block;
-		max-width: min(100%, 1200px);
-		max-height: 100vh;
-		margin: auto;
-		object-fit: contain;
+		width: 100%;
+		height: 100%;
+		max-width: none;
+		max-height: none;
+		object-fit: fill;
+		pointer-events: none;
 	}
 
 	.back,
