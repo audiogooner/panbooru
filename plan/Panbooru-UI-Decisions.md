@@ -62,6 +62,10 @@ Updated 18 October 2026; consolidated after prototype review, after the user con
 - **Verified documentation, 17 October 2026:** Gelbooru's [API documentation](https://gelbooru.com/index.php?id=18780&page=wiki&s=view) states that website search metatags work in the API; its [search cheatsheet](https://gelbooru.com/index.php?id=26263&page=wiki&s=view) documents `sort:random` and optional `sort:random:SEED` (0–10000). Thus random API sorting is documented, though no live authenticated test was performed here. Seeded order can change when the upstream database changes; it is not a durable snapshot.
 - Media-type options are **Images, Animated images and Videos**, with **all selected by default**.
 - Rating options are **General, Sensitive, Questionable and Explicit**, with **all selected by default**. Exact mapping to source-supported ratings must be verified during implementation.
+- Typing `rating:` plus `g`, `s`, `q`, or `e`, then a space, sets that choice on the rating filter and removes the token from the query. `g` is General, `s` Sensitive, `q` Questionable, and `e` Explicit. The first token replaces the default all-ratings selection with that rating; another token adds a rating. This stages the filter and still waits for Search or Enter.
+- Gelbooru has no `or` operator. A remote search sends one selected rating as `rating:explicit` (full word). Two or three selected ratings send the unselected ratings as exclusions, so General and Sensitive become `-rating:explicit -rating:questionable`. All four selected ratings send no rating terms. Local album and Favorites search matches any selected rating directly.
+- `score:` and `id:` stay in the query text and are passed to the Gelbooru API. They have no filter button or other special interface.
+- Grouped query syntax is not supported.
 - Filter icons change to reflect selected options. The accepted proposed multiple-selection treatment is a combined icon with a count badge and a tooltip listing selected values. Exact artwork remains undecided.
 - Changes to query or filters **do not update results immediately**. Search or Enter submits the pending state.
 - Submitting a **different search immediately returns the gallery to the top and replaces the previous results with loading placeholders** while the new results load. This differs from incremental batch-load failures, which preserve existing results.
@@ -88,7 +92,8 @@ Updated 18 October 2026; consolidated after prototype review, after the user con
 - **Escape closes autocomplete and preserves the typed query**. Clicking outside also closes it without discarding the query.
 - Autocomplete suggestions show **category-colored tag names on the left** and **smaller, muted post counts on the right**, matching viewer tag styling.
 - Completion **replaces the tag token at the caret**, preserving other query tags and any **`-` exclusion prefix**. For example, completing `-blue_h` inserts `-blue_hair `, including the trailing space.
-- Tab does nothing when no autocomplete results are available
+- Tab does nothing when no autocomplete results are available.
+- In an album, suggestions are tags present on that album's posts. In Favorites, suggestions are tags present on favorited posts. Neither suggests tags from outside that scope or from Gelbooru.
 
 ## 3. Thumbnail layout and appearance
 
@@ -542,7 +547,7 @@ Gestures depend on the target: tags, thumbnails and sidebar destinations have di
 ## 18. Retention and membership
 
 - Favorites are separate from albums. A post can belong to multiple albums.
-- **Favorites and albums define retention**: no remaining album membership and no favorite status means automatic deletion of the saved original/derivatives and saved-library metadata. Image-removal undo requires a recoverable removal mechanism/window, still to be designed (section 26); do not immediately destroy the only recoverable copy. Ordinary evictable browsing caches remain separate from saved-library retention.
+- **Favorites and albums define retention**: no remaining album membership and no favorite status means automatic deletion of the saved original/derivatives and saved-library metadata. Image-removal undo holds that cleanup for 60 seconds, as specified in section 26. Ordinary evictable browsing caches remain separate from saved-library retention.
 - Favoriting saves metadata and queues original download; collection membership and download readiness are distinct states.
 - Saved content is retained independently of upstream post changes/deletion once original retrieval succeeds.
 - Adding to an album saves its metadata/reference and queues original-media retention when needed. Already saved posts reuse their existing metadata/media rather than downloading duplicates, including bulk and query-wide actions.
@@ -601,7 +606,7 @@ All bindings below are defaults and remain customizable. Suppress application sh
 | Cmd/Ctrl+A | Select the whole current query and enter multi-select mode, with unloaded results included (outside text inputs) |
 | Cmd/Ctrl+Shift+A | Deselect all while keeping multi-select mode open (outside text inputs) |
 | Cmd/Ctrl+Backspace | Album/Favorites gallery: remove selected images; viewer: remove displayed image. Unavailable in remote exploration |
-| Cmd/Ctrl+Z | Restore the last removed image membership without navigating; preserve text-field undo |
+| Cmd/Ctrl+Z | Restore the last removal action without navigating while its 60-second hold lasts; preserve text-field undo |
 | Escape | Dismiss the topmost active layer; selection/edit/capture cancellation, sidebar dismissal, fullscreen exit or viewer return as applicable |
 
 No default view-switching binding; preserve browser Ctrl+Tab/Ctrl+Shift+Tab. No Force Click requirement. No trackpad image-navigation gesture.
@@ -617,7 +622,7 @@ These are unresolved details, not permission requirements or implementation bloc
 | Area | Genuine open details |
 |---|---|
 | Visual system | Logo artwork; exact category shades; fonts, spacing, dimensions, thumbnail gaps, exact squircle radii/implementation details, red-border thickness, surface blur/opacity. The image-derived backdrop direction is approved; exact blur/dimming and UI-surface values remain provisional. |
-| Search and autocomplete | Dropdown geometry and suggestion limits; complex operator/token behavior; exact filter icon artwork; verified Gelbooru rating mapping, especially General versus Sensitive. The four UI labels and all-selected defaults are decided. |
+| Search and autocomplete | Dropdown geometry and suggestion limits; exact filter icon artwork; live Gelbooru confirmation of the rating letters. `rating:` sets the existing filter, grouping is unsupported, and `score:` and `id:` pass through. |
 | Search edge cases | Empty submission with an already changed sort; normalization used for saved-search equality; random-query exhaustion and interaction with whole-query enumeration. |
 | Sidebar and restoration | Width bounds; album-section height bounds; inactive pinned-album unpin behavior; eligibility of fixed pages in close-return history; lifetime of closed-view history; reopened-view insertion position; restoration of pending edits and cache-expired results. |
 | View identity | Actual category icons; customizing UI; returning custom names/icons/colors to automatic; treatment of operators or unknown tags when choosing the first-tag category. |
@@ -627,7 +632,7 @@ These are unresolved details, not permission requirements or implementation bloc
 | Saved searches | Keyword matching; empty saved-query naming; editing stored filters/query; exact deletion-confirmation wording. Saved-search pinning has not been selected. |
 | Viewer | Edge zones, timing and blur; maximum zoom; vertical two-finger panning details; physical-pixel versus CSS-pixel definition of 100%; sidebar closing/viewport-resize zoom edge cases; shortcut/panning interaction with focused controls, OS/browser gestures and video; metadata missing/error presentation. |
 | Playback | Seekbar/player-volume presentation details (no video-volume setting); unsupported/autoplay-blocked states; session position scope across duplicate contexts; persistence across devices. Position reset on reload and volume/mute persistence are decided. |
-| Removal and undo | Production recovery mechanism/window compatible with automatic orphan cleanup; precise transition and restored-preview tuning; undo across reload/devices and bulk-action grouping. Basic image-removal undo without navigation is fixed. |
+| Removal and undo | Decided 7 November 2026: the last removal action stays recoverable for 60 seconds, including one bulk removal, a reload, and another device. Precise transition and restored-preview tuning remain open. |
 | Interface sounds | Assets/licensing, platform policy and default enablement. Implementation and a user disable control are required. |
 | Tasks and feedback | Aggregate progress calculation; completion duration; partial failure detail layout; exact error location/lifetime; task-list overflow; retry checkpoints and query mutation during enumeration. Cancellation and red-over-green priority are decided. |
 | Settings | Concrete controls and defaults not already chosen, especially preload count, batch lookahead and download preferences; validation progress/error UI; shortcut conflict scope; browser-reserved key capture. |
@@ -687,6 +692,6 @@ This final refinement summary supersedes the intermediate cursor-centered popove
 - Removing the displayed image automatically advances to the next image. If it was last, show the previous image. If the collection becomes empty, return to its empty gallery. This is distinct from explicit manual navigation.
 - For automatic advance, the outgoing image makes a **downward departure with a gentle tilt, slight shrink and fade**, while the next enters from the right or the previous enters from the left. All viewer controls remain above the animation. Manual navigation retains its existing behavior.
 - Animate only transforms and opacity on temporary image layers. No per-frame canvas rendering, image tessellation or animated blur. Respect reduced motion with immediate replacement. The current prototype departure is **480 ms**; final distances, tilt and timing remain subject to visual review.
-- **Ctrl/Cmd+Z restores the most recently removed image to its original album/Favorites membership without navigating to it or changing the currently displayed image.** Show a small **rise-and-fade restored-image preview**, preserving the active context. Preserve normal text-field undo when editing.
-- The prototype keeps session-only removal history. Production undo retention/recovery must be reconciled with automatic orphan cleanup so undoable removals remain recoverable. The recovery mechanism and time window remain open; this does not introduce a browsable uncollected library.
+- **Ctrl/Cmd+Z restores the last removal action to its original album/Favorites memberships without navigating to it or changing the currently displayed image.** A bulk removal is one action, so one undo restores that whole selection. Show a small **rise-and-fade restored-image preview**, preserving the active context. Preserve normal text-field undo when editing.
+- The server keeps that last removal recoverable for **60 seconds**, including after a reload or from another device. A newer removal replaces it and deletes the replaced snapshot and original immediately when nothing else retains them. When 60 seconds elapse, the same cleanup runs. This does not introduce a browsable uncollected library. The prototype's session-only history is superseded by this hold.
 - Album deletion undo and redo are not decided by this image-removal rule. Failed removals must roll back under the existing error rules rather than enter successful-removal history.

@@ -103,7 +103,7 @@ The first user is one owner who manages their own server. Different devices acce
 | F18 | Highly minimal custom CSS with selective headless primitives | No Tailwind/Bootstrap visual system or gradient-heavy interface |
 | F19 | Source-scoped categorized tags, cached and refreshed | Live category changes do not overwrite saved post snapshots |
 | F20 | Library-wide exact-metadata-hash and media-content deduplication | Reuse records/objects across every save path, not only albums |
-| F21 | Favorites/album membership defines retention; image-removal undo required | Last-membership cleanup with recoverability for undo; exact recovery window open |
+| F21 | Favorites/album membership defines retention; image-removal undo required | Last removal action stays recoverable for 60 seconds; no browsable bin |
 | F22 | Interface sounds must be implemented, with user disable control | Independent from player volume; assets/platform/default policy open |
 
 ### 2.3 Initial usable release
@@ -212,7 +212,7 @@ New browser tabs and devices have independent active exploration sessions. A dup
 
 **F:** Begin with Gelbooru only. Preserve its query language, including advanced expressions, rather than replacing it with an incompatible simplified parser. The adapter normalizes results, pagination, dimensions, media variants, source IDs and tags. Avoid assuming counts or page availability when upstream omits them. [C2; H0, line 44]
 
-**F:** staged Search-to-update, infinite scrolling with multiple-batch lookahead, embedded rating/sort/media icon filters, all ratings/media selected by default and Newest sorting. Sorting includes Newest, Oldest, Highest score and Random. The four UI rating labels are General, Sensitive, Questionable and Explicit; mapping to verified Gelbooru capabilities remains open. New blank views load default results immediately. Random batches suppress already-seen source/post IDs while retaining the existing sequence; this does not guarantee uniform sampling or exhaustive enumeration. See UI section 2 for source-documentation evidence and exact controls.
+**F:** staged Search-to-update, infinite scrolling with multiple-batch lookahead, embedded rating/sort/media icon filters, all ratings/media selected by default and Newest sorting. Sorting includes Newest, Oldest, Highest score and Random. The four UI rating labels are General, Sensitive, Questionable and Explicit. Typing `rating:` plus `g`, `s`, `q`, or `e`, then a space, sets that rating filter and removes the token from the query; the first token replaces the all-ratings default. Gelbooru has no `or` operator: one selected rating is sent as `rating:explicit` (full word); two or three selected ratings are sent as exclusions of the others, so General and Sensitive become `-rating:explicit -rating:questionable`; all four send no rating terms. `score:` and `id:` remain query text, pass through to the Gelbooru API, and have no special controls. Grouped query syntax is not supported. Live confirmation of the rating letters remains open. New blank views load default results immediately. Random batches suppress already-seen source/post IDs while retaining the existing sequence; this does not guarantee uniform sampling or exhaustive enumeration. See UI section 2 for source-documentation evidence and exact controls.
 
 ### 5.2 Autocomplete
 
@@ -234,7 +234,7 @@ Saved post snapshots retain the tags present at save time. A separate referenced
 
 ### 5.4 Local library search
 
-Search server-saved data without requiring upstream access. **R MVP:** tag inclusion/exclusion, favorite status, album, media type and date saved; sort by saved date and basic resolution. Index tag membership and identity; introduce SQLite FTS for textual fields only when needed. Do not promise Gelbooru's full advanced expression grammar against the local library. Explain unsupported local operators rather than returning misleading results.
+Search the current album or Favorites without requiring upstream access. Autocomplete suggests only tags present on posts in that scope. A local rating filter keeps posts whose stored rating is one of the selected ratings. The Gelbooru exclusion translation in section 5.1 applies only when that filter is sent upstream. The media-type and sort controls stay the exploration controls; this search does not add a saved-date filter or a resolution sort. Index tag membership and identity; introduce SQLite FTS for textual fields only when needed. Do not implement grouping. `score:` and `id:` are remote passthrough operators, not local controls. Explain an unsupported local operator rather than returning misleading results.
 
 ## 6. Gallery, viewer and visual design
 
@@ -319,9 +319,9 @@ Desktop-first does not permit essential settings or login to become unreachable 
 | Delete album | Remove album and memberships; clean only uncollected items; never remove shared retained objects |
 | Cancel collection import | Stop future additions; retain completed additions and continue their original downloads |
 | Remote post disappears | Preserve locally retained bytes/snapshot while collection membership remains |
-| Ctrl/Cmd+Z after image removal | Restore membership without navigating; exact recovery mechanism/window open |
+| Ctrl/Cmd+Z after image removal | Restore the last removal action without navigating, if it is still within 60 seconds |
 
-There is no browsable orphaned All Library area and no remote-exploration deletion action. An open viewer is not a retention membership. Automatic cleanup must not race a new membership or delete shared bytes. Independent cover previews persist only while referenced by album/saved-search covers. The production recovery policy must make undo possible while preserving automatic last-membership cleanup; it is not finalized as a specific trash duration.
+There is no browsable orphaned All Library area and no remote-exploration deletion action. An open viewer is not a retention membership. Automatic cleanup must not race a new membership or delete shared bytes. Independent cover previews persist only while referenced by album/saved-search covers. Image-removal undo keeps the last removal action recoverable for 60 seconds, including after reload or from another device. A bulk removal is one action. A newer removal replaces that action and deletes the replaced snapshot and original immediately when nothing else retains them. When 60 seconds elapse, the same cleanup runs. Album-deletion undo remains unspecified.
 
 A failed download cannot preserve bytes it never acquired. The UI must distinguish “saved metadata” from “original available locally.” A post deleted upstream while still queued may remain metadata-only permanently.
 
@@ -407,7 +407,7 @@ All dates use UTC timestamps internally; display local dates to the owner. Sourc
 | `saved_searches` | ID, label, editable type, source/query/filters/order, cover configuration, revision; no active pointer or scroll |
 | `cover_previews` / references | Independently retained small media objects and album/saved-search references; cleanup at last cover reference |
 | `workspace_checkpoints` | Optional persistence design for reloadable contexts/selection/panel state; distinct from saved-search presets; authority scope to refine |
-| `removal_recovery` | Proposed undo membership/provenance and recoverable object references; retention window/design open |
+| `removal_recovery` | Last image-removal action, its memberships, and recoverable object references; deleted after 60 seconds or when a newer removal replaces it |
 | `settings` | Typed versioned settings; secret values excluded |
 | `schema_migrations` | Applied version, timestamp, checksum |
 
@@ -461,7 +461,7 @@ Shared owner data still has concurrent devices. **R:** revisions and `If-Match` 
 | `POST /api/collection-imports` | Enumerate applied whole-query selection/exclusions into album/Favorites; metadata-first progress |
 | `GET/POST /api/saved-searches` | Shared query/filter/order presets with label/type/cover; no active-session cursor |
 | `PATCH/DELETE /api/saved-searches/:id` | Edit preset label/type/cover or delete; leave open exploration contexts intact |
-| `POST /api/removals/:id/undo` | Restore removed membership if recoverable without navigating; token/window contract to refine |
+| `POST /api/removals/:id/undo` | Restore the last removal action's memberships without navigating while its 60-second recovery hold lasts |
 | `POST /api/imports` | Bounded migration manifest/stream; resumable transfer protocol recommended |
 | `GET /api/imports/:id` | Validation/progress/conflicts; no imported secrets |
 | `GET /health` | Minimal process liveness; no library paths or secret state |
@@ -703,7 +703,7 @@ These stages replace conflicting historical milestone labels; they are proposed 
 | Shortcut capture/platform conflicts | Defaults and current gestures are fixed in UI record; validate Firefox/macOS behavior and customization conflicts |
 | Supported video/animated formats | Autoplay/loop/player volume persistence are fixed; verify codecs, autoplay blocking and playback controls |
 | Remaining album details | Cover fans/customization and bulk ZIP are fixed; unspecified fields and content-order refinements remain open; smart albums deferred |
-| Undo recovery window/mechanism | Image undo and automatic orphan cleanup are fixed; select recoverability policy without retaining a browsable orphan library |
+| Undo recovery window/mechanism | Decided 7 November 2026: last removal action, including one bulk removal, recoverable for 60 seconds; then last-membership cleanup. No browsable bin |
 | Interface-sound assets/platform/default policy | Implementation with disable setting is required; actual Apple assets cannot be assumed licensed |
 | TTLs, concurrency, byte/time budgets and cache capacity | Measure source limits and host resources; separate browsing and original-video budgets |
 | SQLite driver/ORM and exact runtime packages | Pin compatible maintained versions after repository audit; historical handoff pins are evidence only |
