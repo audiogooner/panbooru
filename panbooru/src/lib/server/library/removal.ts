@@ -12,6 +12,12 @@ export type HeldMembership = {
 	addedAt: number;
 };
 
+export function openRemoval(db: AppDatabase) {
+	const row = db.$client.prepare('select id from removal_actions').get() as
+		{ id: string } | undefined;
+	return row?.id ?? null;
+}
+
 export function expireRemovals(db: AppDatabase, dataDir: string, now: number) {
 	const expired = db.$client
 		.prepare(

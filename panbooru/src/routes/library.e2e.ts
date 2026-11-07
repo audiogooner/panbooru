@@ -126,3 +126,32 @@ test('a favorites search filters by a tag from the saved post', async ({ page })
 	await expect(page.getByText('No results')).toBeVisible();
 	await expect(page.getByLabel('Tags')).toHaveValue('forest');
 });
+
+test('a removed favorite returns from the keyboard after reload', async ({ page }) => {
+	await ownerSession(page);
+	await openLandscape(page);
+	const saved = page.waitForResponse(
+		(response) => response.url().includes('/api/library/favorites') && response.ok()
+	);
+	await page.getByRole('button', { name: 'Favorite', exact: true }).click();
+	await saved;
+
+	await page.goto('/favorites');
+	await expect(page.getByRole('img')).toHaveCount(1);
+	await page.getByRole('button', { name: 'Remove favorite' }).click();
+	await expect(page.getByRole('img')).toHaveCount(0);
+
+	await page.reload();
+	await expect(page).toHaveURL(/\/favorites$/);
+	await expect(page.getByRole('img')).toHaveCount(0);
+
+	const tags = page.getByLabel('Tags');
+	await tags.focus();
+	await page.keyboard.press('ControlOrMeta+Z');
+	await expect(page.getByRole('img')).toHaveCount(0);
+
+	await tags.blur();
+	await page.keyboard.press('ControlOrMeta+Z');
+	await expect(page.getByRole('img')).toHaveCount(1);
+	await expect(page).toHaveURL(/\/favorites$/);
+});

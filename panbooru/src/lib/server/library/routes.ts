@@ -10,6 +10,7 @@ import {
 	saveFavorite,
 	type PostMetadata
 } from '#lib/server/library/save.ts';
+import { undoRemoval } from '#lib/server/library/removal.ts';
 import { suggestAlbum, suggestFavorites } from '#lib/server/library/search.ts';
 import { runServiceOriginalPass } from '#lib/server/library/worker.ts';
 
@@ -122,6 +123,18 @@ export async function handleLibrary(
 			services,
 			saveAlbumMembership(services.db, metadata, albumId, services.now())
 		);
+	}
+
+	const removalUndo = url.pathname.match(/^\/api\/library\/removals\/([^/]+)\/undo$/);
+	if (request.method === 'POST' && removalUndo) {
+		const restored = undoRemoval(
+			services.db,
+			services.dataDir,
+			decodeURIComponent(removalUndo[1] ?? ''),
+			services.now()
+		);
+		if (!restored) return jsonError('NOT_FOUND', 'Removal can no longer be undone', 404);
+		return jsonData({ restored: true });
 	}
 
 	const favoriteItem = url.pathname.match(/^\/api\/library\/favorites\/([^/]+)$/);
