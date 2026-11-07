@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import sharp from 'sharp';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +11,11 @@ const infoDir = join(import.meta.dirname, '..', 'test-results');
 mkdirSync(infoDir, { recursive: true });
 const infoPath = join(infoDir, 'e2e-data-dir');
 const clip = readFileSync(new URL('./fixtures/clip.mp4', import.meta.url));
+const jpeg = await sharp({
+	create: { width: 8, height: 8, channels: 3, background: { r: 40, g: 80, b: 120 } }
+})
+	.jpeg()
+	.toBuffer();
 
 const fixture = createServer(async (request, response) => {
 	const url = new URL(request.url ?? '/', 'http://127.0.0.1');
@@ -21,7 +27,7 @@ const fixture = createServer(async (request, response) => {
 	if (url.pathname.startsWith('/images/slow')) {
 		await new Promise((resolve) => setTimeout(resolve, 1200));
 		response.writeHead(200, { 'content-type': 'image/jpeg' });
-		response.end('jpeg-bytes');
+		response.end(jpeg);
 		return;
 	}
 	if (url.pathname.endsWith('.mp4') || url.pathname.endsWith('.mkv')) {
@@ -61,7 +67,7 @@ const fixture = createServer(async (request, response) => {
 	}
 	if (url.pathname.startsWith('/images/')) {
 		response.writeHead(200, { 'content-type': 'image/jpeg' });
-		response.end('jpeg-bytes');
+		response.end(jpeg);
 		return;
 	}
 	if (

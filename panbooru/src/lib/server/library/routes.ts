@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { serveStoredThumb } from '#lib/server/media/serve.ts';
 import { fileMediaResponse } from '#lib/server/media/range.ts';
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
@@ -184,6 +185,10 @@ export async function handleLibrary(
 		const row = readyOriginal(services, itemId);
 		const path = row ? localPath(services.dataDir, row.relativePath) : null;
 		if (!path) return jsonError('NOT_FOUND', 'Original is not ready', 404);
+		if (url.searchParams.get('recipe') === 'thumb') {
+			const thumb = await serveStoredThumb(request, services, itemId, path);
+			if (thumb) return thumb;
+		}
 		const streamed = fileMediaResponse(
 			path,
 			request.method,

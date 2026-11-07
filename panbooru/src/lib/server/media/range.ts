@@ -79,13 +79,14 @@ export function ownedMediaResponse(options: {
 	rangeHeader: string | null;
 	filename?: string;
 	label?: string | null;
+	cacheControl?: string;
 	open: (start: number, end: number) => BodyInit | null;
 }) {
 	const ranged = ownedSpan(options.method, options.rangeHeader, options.size);
 	const headers = new Headers();
 	headers.set('content-type', options.type);
 	headers.set('x-content-type-options', 'nosniff');
-	headers.set('cache-control', 'private, no-store');
+	headers.set('cache-control', options.cacheControl ?? 'private, no-store');
 	headers.set('accept-ranges', 'bytes');
 	if (options.filename) {
 		headers.set(
@@ -128,6 +129,7 @@ export function bytesMediaResponse(options: {
 	rangeHeader: string | null;
 	filename?: string;
 	label?: string | null;
+	cacheControl?: string;
 }) {
 	return ownedMediaResponse({
 		...options,
@@ -141,7 +143,7 @@ export function fileMediaResponse(
 	method: string,
 	rangeHeader: string | null,
 	type: string,
-	extra?: { filename?: string; label?: string | null }
+	extra?: { filename?: string; label?: string | null; cacheControl?: string }
 ) {
 	let size = 0;
 	try {
@@ -156,6 +158,7 @@ export function fileMediaResponse(
 		rangeHeader,
 		filename: extra?.filename,
 		label: extra?.label,
+		cacheControl: extra?.cacheControl,
 		open: (start, end) => {
 			if (size === 0 || end < start) return null;
 			return Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream;

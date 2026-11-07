@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { jsonError } from '#lib/server/http/json.ts';
@@ -8,8 +8,10 @@ import {
 	isVideoFile,
 	maxSourceBytes,
 	recipeFromQuery,
+	recipeNames,
 	renderDerivative,
-	type RecipeName
+	type RecipeName,
+	type RenderedDerivative
 } from '#lib/server/media/derivative.ts';
 import { checkDestination, checkRedirect } from '#lib/server/media/policy.ts';
 import {
@@ -21,6 +23,8 @@ import {
 import type { MediaTarget } from '#lib/server/sources/gelbooru.ts';
 
 const imageLimit = maxSourceBytes;
+const derivativeCacheControl = 'private, max-age=86400';
+const upstreamBytes = new WeakMap<AppServices, Map<string, Promise<Buffer>>>();
 
 export async function serveMedia(request: Request, url: URL, services: AppServices) {
 	const ref = decodeURIComponent(url.pathname.slice('/api/media/'.length));
@@ -35,65 +39,71 @@ export async function serveMedia(request: Request, url: URL, services: AppServic
 	return serveOriginal(request, services, target, download);
 }
 
+export async function serveStoredThumb(
+	request: Request,
+	services: AppServices,
+	itemId: string,
+	absolutePath: string
+) {
+	const fileUrl = storedFileUrl(services, itemId);
+	if (!fileUrl) return null;
+	let identity: string;
+	try {
+		identity = canonicalFileUrl(fileUrl);
+	} catch {
+		return null;
+	}
+	const cached = await cachedDerivativeResponse(request, services, identity, recipeNames.thumb);
+	if (cached) return cached;
+	if (isVideoFile(fileUrl)) return null;
+	try {
+		const info = await stat(absolutePath);
+		if (info.size > imageLimit) return null;
+		const bytes = await readFile(absolutePath);
+		const rendered = await renderDerivative(bytes, recipeNames.thumb);
+		await persistDerivative(services, identity, recipeNames.thumb, rendered);
+		return derivativeBytesResponse(request, rendered);
+	} catch (error) {
+		services.log(error instanceof Error ? error.message : 'stored thumb failed');
+		return null;
+	}
+}
+
 async function serveDerivative(
 	request: Request,
 	services: AppServices,
 	target: MediaTarget,
 	recipe: RecipeName
 ) {
-	const identity = canonicalFileUrl(target.fileUrl);
-	const cached = cachedDerivative(services, identity, recipe);
-	if (cached) {
-		const streamed = fileMediaResponse(
-			join(services.dataDir, cached.relativePath),
-			request.method,
-			request.headers.get('range'),
-			'image/webp',
-			{ label: cached.label }
-		);
-		if (streamed) return streamed;
-	}
+	const sourceUrl = derivativeSource(target, recipe);
+	let identity: string;
 	try {
-		const sourceUrl =
-			isVideoFile(target.fileUrl) && target.previewUrl ? target.previewUrl : target.fileUrl;
-		const bytes = await readImage(services, sourceUrl);
+		identity = derivativeIdentity(target, sourceUrl);
+	} catch {
+		return null;
+	}
+	const cached = await cachedDerivativeResponse(request, services, identity, recipe);
+	if (cached) return cached;
+	try {
+		const bytes = await readSourceBytes(services, sourceUrl);
 		const rendered = await renderDerivative(bytes, recipe);
-		const relativePath = await writeDerivative(services.dataDir, rendered.bytes);
-		services.db.$client
-			.prepare(
-				`insert into derivatives (
-					id, source_identity, recipe, width, height, format, relative_path, byte_size, label
-				) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-				on conflict (source_identity, recipe) do update set
-					width = excluded.width,
-					height = excluded.height,
-					format = excluded.format,
-					relative_path = excluded.relative_path,
-					byte_size = excluded.byte_size,
-					label = excluded.label`
-			)
-			.run(
-				randomUUID(),
-				identity,
-				recipe,
-				rendered.width,
-				rendered.height,
-				rendered.format,
-				relativePath,
-				rendered.bytes.length,
-				rendered.label
-			);
-		return bytesMediaResponse({
-			method: request.method,
-			bytes: rendered.bytes,
-			type: 'image/webp',
-			rangeHeader: request.headers.get('range'),
-			label: rendered.label
-		});
+		await persistDerivative(services, identity, recipe, rendered);
+		return derivativeBytesResponse(request, rendered);
 	} catch (error) {
 		services.log(error instanceof Error ? error.message : 'derivative generation failed');
 		return null;
 	}
+}
+
+function derivativeSource(target: MediaTarget, recipe: RecipeName) {
+	const preview = target.previewUrl.trim();
+	if (preview && (recipe === recipeNames.thumb || isVideoFile(target.fileUrl))) return preview;
+	return target.fileUrl;
+}
+
+function derivativeIdentity(target: MediaTarget, sourceUrl: string) {
+	if (isVideoFile(target.fileUrl)) return canonicalFileUrl(target.fileUrl);
+	return canonicalFileUrl(sourceUrl);
 }
 
 function cachedDerivative(services: AppServices, identity: string, recipe: string) {
@@ -104,6 +114,111 @@ function cachedDerivative(services: AppServices, identity: string, recipe: strin
 			 where source_identity = ? and recipe = ?`
 		)
 		.get(identity, recipe) as { relativePath: string; label: string | null } | undefined;
+}
+
+async function cachedDerivativeResponse(
+	request: Request,
+	services: AppServices,
+	identity: string,
+	recipe: string
+) {
+	const cached = cachedDerivative(services, identity, recipe);
+	if (!cached) return null;
+	return fileMediaResponse(
+		join(services.dataDir, cached.relativePath),
+		request.method,
+		request.headers.get('range'),
+		'image/webp',
+		{ label: cached.label, cacheControl: derivativeCacheControl }
+	);
+}
+
+function derivativeBytesResponse(request: Request, rendered: RenderedDerivative) {
+	return bytesMediaResponse({
+		method: request.method,
+		bytes: rendered.bytes,
+		type: 'image/webp',
+		rangeHeader: request.headers.get('range'),
+		label: rendered.label,
+		cacheControl: derivativeCacheControl
+	});
+}
+
+async function persistDerivative(
+	services: AppServices,
+	identity: string,
+	recipe: RecipeName,
+	rendered: RenderedDerivative
+) {
+	const relativePath = await writeDerivative(services.dataDir, rendered.bytes);
+	services.db.$client
+		.prepare(
+			`insert into derivatives (
+				id, source_identity, recipe, width, height, format, relative_path, byte_size, label
+			) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			on conflict (source_identity, recipe) do update set
+				width = excluded.width,
+				height = excluded.height,
+				format = excluded.format,
+				relative_path = excluded.relative_path,
+				byte_size = excluded.byte_size,
+				label = excluded.label`
+		)
+		.run(
+			randomUUID(),
+			identity,
+			recipe,
+			rendered.width,
+			rendered.height,
+			rendered.format,
+			relativePath,
+			rendered.bytes.length,
+			rendered.label
+		);
+}
+
+function storedFileUrl(services: AppServices, itemId: string) {
+	const row = services.db.$client
+		.prepare(
+			`select post_snapshots.snapshot as snapshot
+			 from saved_items
+			 join post_snapshots on post_snapshots.id = saved_items.snapshot_id
+			 where saved_items.id = ?`
+		)
+		.get(itemId) as { snapshot: string } | undefined;
+	if (!row) return null;
+	try {
+		const parsed = JSON.parse(row.snapshot) as { fileUrl?: unknown };
+		return typeof parsed.fileUrl === 'string' ? parsed.fileUrl : null;
+	} catch {
+		return null;
+	}
+}
+
+async function readSourceBytes(services: AppServices, rawUrl: string) {
+	const local = readyOriginal(services, rawUrl);
+	if (local) return readFile(join(services.dataDir, local.relativePath));
+	let key: string;
+	try {
+		key = canonicalFileUrl(rawUrl);
+	} catch {
+		return readImage(services, rawUrl);
+	}
+	const bucket = upstreamBytes.get(services) ?? new Map<string, Promise<Buffer>>();
+	if (!upstreamBytes.has(services)) upstreamBytes.set(services, bucket);
+	const pending = bucket.get(key);
+	if (pending) return pending;
+	const reading = readImage(services, rawUrl).catch((error: unknown) => {
+		if (bucket.get(key) === reading) bucket.delete(key);
+		throw error;
+	});
+	bucket.set(key, reading);
+	while (bucket.size > 3) {
+		const oldest = bucket.keys().next().value;
+		if (!oldest || oldest === key) break;
+		bucket.delete(oldest);
+	}
+	return reading;
 }
 
 async function writeDerivative(dataDir: string, bytes: Buffer) {

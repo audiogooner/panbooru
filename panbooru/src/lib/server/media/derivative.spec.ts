@@ -19,8 +19,10 @@ const animatedGif = Buffer.from(
 const files = new Map<string, { type: string; body: Buffer }>();
 
 async function startFixture() {
+	const requests: string[] = [];
 	const server = createServer((request, response) => {
 		const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+		requests.push(url.pathname);
 		const file = files.get(url.pathname);
 		if (file) {
 			response.writeHead(200, {
@@ -35,7 +37,7 @@ async function startFixture() {
 		response.end(
 			JSON.stringify({
 				post: [
-					post('wide', '/images/wide.jpg', '/images/wide.jpg', 2000, 1000),
+					post('wide', '/images/wide.jpg', '/images/wide-preview.jpg', 2000, 1000),
 					post('bad', '/images/bad.jpg', '/images/bad.jpg', 32, 32),
 					post('anim', '/images/anim.gif', '/images/anim.gif', 8, 8),
 					post('clip', '/images/clip.mp4', '/images/preview.jpg', 320, 180)
@@ -49,6 +51,7 @@ async function startFixture() {
 	if (!address || typeof address === 'string') throw new Error('fixture failed to bind');
 	return {
 		origin: `http://127.0.0.1:${address.port}`,
+		requests,
 		close: () =>
 			new Promise<void>((resolve, reject) => {
 				server.close((error) => (error ? reject(error) : resolve()));
@@ -87,7 +90,13 @@ describe('image derivatives', () => {
 		})
 			.jpeg()
 			.toBuffer();
+		const widePreview = await sharp({
+			create: { width: 160, height: 80, channels: 3, background: { r: 20, g: 180, b: 90 } }
+		})
+			.jpeg()
+			.toBuffer();
 		files.set('/images/wide.jpg', { type: 'image/jpeg', body: wide });
+		files.set('/images/wide-preview.jpg', { type: 'image/jpeg', body: widePreview });
 		files.set('/images/bad.jpg', { type: 'image/jpeg', body: Buffer.from('not-an-image') });
 		files.set('/images/anim.gif', { type: 'image/gif', body: animatedGif });
 		files.set('/images/clip.mp4', {
@@ -128,7 +137,7 @@ describe('image derivatives', () => {
 		};
 		const ref = (tag: string) =>
 			payload.data.posts.find((item) => item.tags.includes(tag))?.mediaRef ?? '';
-		return { app, dataDir, cookie, ref, wide };
+		return { app, dataDir, cookie, ref, wide, requests: fixture.requests };
 	}
 
 	it('records recipe rows without a second copy of the same source', async () => {
@@ -146,22 +155,31 @@ describe('image derivatives', () => {
 	});
 
 	it('serves thumb, display, and backdrop sizes without changing the original', async () => {
-		const { app, dataDir, cookie, ref, wide } = await boot();
+		const { app, dataDir, cookie, ref, wide, requests } = await boot();
 		const thumb = await media(app, cookie, ref('wide'), 'thumb');
 		expect(thumb.status).toBe(200);
 		expect(thumb.headers.get('content-type')).toContain('image/webp');
+		expect(thumb.headers.get('cache-control')).toContain('private');
+		expect(thumb.headers.get('cache-control')).toContain('max-age=86400');
+		expect(thumb.headers.get('cache-control')).not.toContain('no-store');
+		expect(thumb.headers.get('cache-control')).not.toContain('public');
 		const thumbBytes = Buffer.from(await thumb.arrayBuffer());
 		expect(await sharp(thumbBytes).metadata()).toMatchObject({
 			format: 'webp',
-			width: 320,
-			height: 160
+			width: 160,
+			height: 80
 		});
+		expect(requests.filter((path) => path === '/images/wide.jpg')).toEqual([]);
+		expect(requests.filter((path) => path === '/images/wide-preview.jpg')).toHaveLength(1);
 
 		const display = await media(app, cookie, ref('wide'), 'display');
 		const displayBytes = Buffer.from(await display.arrayBuffer());
 		expect(await sharp(displayBytes).metadata()).toMatchObject({ width: 1920, height: 960 });
+		expect(display.headers.get('cache-control')).not.toContain('no-store');
+		expect(display.headers.get('cache-control')).not.toContain('public');
 
 		const backdrop = await media(app, cookie, ref('wide'), 'backdrop');
+		expect(requests.filter((path) => path === '/images/wide.jpg')).toHaveLength(1);
 		const backdropBytes = Buffer.from(await backdrop.arrayBuffer());
 		expect(await sharp(backdropBytes).metadata()).toMatchObject({ width: 48, height: 24 });
 		expect(backdropBytes.equals(thumbBytes)).toBe(false);
@@ -177,6 +195,8 @@ describe('image derivatives', () => {
 		});
 		expect(download.headers.get('content-disposition')).toContain('attachment');
 		expect(download.headers.get('content-disposition')).toContain('wide.jpg');
+		expect(download.headers.get('cache-control')).toContain('no-store');
+		expect(download.headers.get('cache-control')).not.toContain('public');
 		expect(Buffer.from(await download.arrayBuffer())).toEqual(wide);
 
 		const saved = await app.fetch('/api/library/favorites', {
@@ -213,6 +233,28 @@ describe('image derivatives', () => {
 		const again = await readFile(join(dataDir, 'media', 'originals', hash));
 		expect(createHash('sha256').update(again).digest('hex')).toBe(hash);
 		expect(again).toEqual(wide);
+		const upstreamBeforeThumb = requests.filter((path) => path === '/images/wide.jpg').length;
+		const libraryThumb = await app.fetch(
+			`/api/library/originals/${encodeURIComponent(item.data.itemId)}?recipe=thumb`,
+			{ headers: { cookie } }
+		);
+		expect(libraryThumb.status).toBe(200);
+		expect(libraryThumb.headers.get('content-type')).toContain('image/webp');
+		expect(libraryThumb.headers.get('cache-control')).toContain('private');
+		expect(libraryThumb.headers.get('cache-control')).toContain('max-age=86400');
+		expect(libraryThumb.headers.get('cache-control')).not.toContain('no-store');
+		expect(libraryThumb.headers.get('cache-control')).not.toContain('public');
+		expect(await sharp(Buffer.from(await libraryThumb.arrayBuffer())).metadata()).toMatchObject({
+			width: 320,
+			height: 160
+		});
+		expect(requests.filter((path) => path === '/images/wide.jpg')).toHaveLength(upstreamBeforeThumb);
+		const storedOriginal = await app.fetch(
+			`/api/library/originals/${encodeURIComponent(item.data.itemId)}`,
+			{ headers: { cookie } }
+		);
+		expect(storedOriginal.headers.get('cache-control')).toContain('no-store');
+		expect(storedOriginal.headers.get('cache-control')).not.toContain('public');
 
 		files.set('/images/wide.jpg', {
 			type: 'image/jpeg',
