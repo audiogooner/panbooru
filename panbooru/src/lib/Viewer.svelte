@@ -90,6 +90,7 @@
 	let dragAt = { x: 0, y: 0 };
 	let direction = $state(1);
 	let loadedId = $state('');
+	let previewId = $state('');
 	let paused = $state(true);
 	let elapsed = $state(0);
 	let duration = $state(0);
@@ -138,6 +139,7 @@
 		imageSrc ||
 			(needsOriginal(image, zoom.scale) ? mediaBase : withRecipe(mediaBase, 'display'))
 	);
+	const previewSrc = $derived(withRecipe(mediaBase, 'thumb'));
 	// Library originals only serve thumb derivatives; remote media has recipe=backdrop.
 	const blurBackdrop = $derived(
 		imageSrc ? withRecipe(mediaBase, 'thumb') : withRecipe(mediaBase, 'backdrop')
@@ -155,6 +157,8 @@
 	const sequence = $derived(posts.length ? posts : [post]);
 	const index = $derived(sequence.findIndex((item) => item.id === post.id));
 	const loading = $derived(!unsupportedVideo && loadedId !== post.id);
+	const showPreview = $derived(loading && previewSrc !== foreground);
+	const previewReady = $derived(previewId === post.id);
 	const ghost = $derived(loading && held && held.id !== post.id ? held : null);
 	const canPan = $derived(
 		image.width * zoom.scale > (manual ? viewportWidth : frameWidth) + 0.5 ||
@@ -458,6 +462,19 @@
 				};
 			}
 		})();
+	}
+
+	function markPreview(event: Event) {
+		const image = event.currentTarget;
+		if (!(image instanceof HTMLImageElement) || image.dataset.post !== post.id) return;
+		previewId = post.id;
+	}
+
+	function watchPreview(img: HTMLImageElement) {
+		void previewSrc;
+		if (img.complete && img.naturalWidth > 0 && img.dataset.post === post.id) {
+			previewId = post.id;
+		}
 	}
 
 	function toggleFullscreen() {
@@ -796,7 +813,15 @@
 		{/if}
 		{#key post.id}
 			<div
-				class={['stage', { pannable: canPan, grabbing: dragging, ready: !loading }]}
+				class={[
+					'stage',
+					{
+						pannable: canPan,
+						grabbing: dragging,
+						ready: !loading,
+						previewed: showPreview && previewReady
+					}
+				]}
 				role="application"
 				aria-label="Artwork"
 				data-scale={zoom.scale}
@@ -813,6 +838,19 @@
 				onpointercancel={endDrag}
 				{ondblclick}
 			>
+				{#if showPreview}
+					<img
+						class="full preview"
+						src={previewSrc}
+						alt=""
+						aria-hidden="true"
+						data-post={post.id}
+						draggable="false"
+						{@attach watchPreview}
+						onload={markPreview}
+						onerror={markPreview}
+					/>
+				{/if}
 				<img
 					class="full"
 					src={foreground}
@@ -1036,12 +1074,18 @@
 	}
 
 	.stage.ready,
-	.stage.held {
+	.stage.held,
+	.stage.previewed {
 		visibility: visible;
 	}
 
 	.stage.held {
 		pointer-events: none;
+	}
+
+	.stage .preview {
+		position: absolute;
+		inset: 0;
 	}
 
 	.stage.pannable {
