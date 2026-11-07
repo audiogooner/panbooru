@@ -83,7 +83,13 @@
 <svelte:window onpopstate={onPop} />
 
 {#if activeView().mode === 'viewer' && currentPost}
-	<Viewer post={currentPost} onclose={hideViewer} ontag={onTag} />
+	<Viewer
+		post={currentPost}
+		posts={activeView().posts}
+		onclose={hideViewer}
+		ontag={onTag}
+		onmove={showPost}
+	/>
 {:else}
 	<section class="explore">
 		{#key `${navigation.activeId}:${activeView().query}`}

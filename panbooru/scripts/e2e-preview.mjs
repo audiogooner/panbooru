@@ -10,11 +10,26 @@ const infoDir = join(import.meta.dirname, '..', 'test-results');
 mkdirSync(infoDir, { recursive: true });
 const infoPath = join(infoDir, 'e2e-data-dir');
 
-const fixture = createServer((request, response) => {
+const fixture = createServer(async (request, response) => {
 	const url = new URL(request.url ?? '/', 'http://127.0.0.1');
 	if (url.pathname.startsWith('/images/missing')) {
 		response.writeHead(404, { 'content-type': 'text/plain' });
 		response.end('missing');
+		return;
+	}
+	if (url.pathname.startsWith('/images/slow')) {
+		await new Promise((resolve) => setTimeout(resolve, 1200));
+		response.writeHead(200, { 'content-type': 'image/jpeg' });
+		response.end('jpeg-bytes');
+		return;
+	}
+	if (url.pathname.endsWith('.mp4')) {
+		response.writeHead(200, { 'content-type': 'video/mp4', 'content-length': '11' });
+		if (request.method === 'HEAD') {
+			response.end();
+			return;
+		}
+		response.end('video-bytes');
 		return;
 	}
 	if (url.pathname.startsWith('/images/')) {
@@ -39,6 +54,7 @@ const fixture = createServer((request, response) => {
 	const words = tags.split(/\s+/);
 	const missing = words.includes('missing');
 	const huge = words.includes('huge');
+	const sequence = words.includes('sequence');
 	const post = missing
 		? {
 				id: 11,
@@ -68,8 +84,39 @@ const fixture = createServer((request, response) => {
 					height: 50,
 					rating: 'general'
 				};
+	const posts = sequence
+		? [
+				{
+					id: 21,
+					tags: 'sequence first',
+					file_url: 'https://cdn.fixture.test/images/first.jpg',
+					preview_url: 'https://cdn.fixture.test/images/first.jpg',
+					width: 100,
+					height: 50,
+					rating: 'general'
+				},
+				{
+					id: 22,
+					tags: 'sequence clip',
+					file_url: 'https://cdn.fixture.test/images/clip.mp4',
+					preview_url: 'https://cdn.fixture.test/images/clip.jpg',
+					width: 100,
+					height: 50,
+					rating: 'general'
+				},
+				{
+					id: 23,
+					tags: 'sequence slow',
+					file_url: 'https://cdn.fixture.test/images/slow.jpg',
+					preview_url: 'https://cdn.fixture.test/images/slow.jpg',
+					width: 4000,
+					height: 3000,
+					rating: 'general'
+				}
+			]
+		: [post];
 	response.writeHead(200, { 'content-type': 'application/json' });
-	response.end(JSON.stringify({ post: [post] }));
+	response.end(JSON.stringify({ post: posts }));
 });
 
 await new Promise((resolve) => fixture.listen(0, '127.0.0.1', () => resolve(undefined)));

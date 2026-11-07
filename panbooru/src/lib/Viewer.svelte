@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { viewerChrome } from '#lib/explore.svelte.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
+	import { neighborPrefetch } from '#lib/prefetch.ts';
 	import {
 		doubleClickZoom,
 		initialScale,
@@ -16,12 +17,16 @@
 
 	let {
 		post,
+		posts = [],
 		onclose,
-		ontag
+		ontag,
+		onmove
 	}: {
 		post: ExplorationPost;
+		posts?: ExplorationPost[];
 		onclose: () => void;
 		ontag: (tag: string, event: MouseEvent) => void;
+		onmove: (id: string) => void;
 	} = $props();
 	let tagsOpen = $state(false);
 	let albumName = $state('');
@@ -32,6 +37,8 @@
 	let manualId = $state('');
 	let dragging = $state(false);
 	let dragAt = { x: 0, y: 0 };
+	let direction = $state(1);
+	let loadedId = $state('');
 
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
 	const manual = $derived(manualZoom !== null && manualId === post.id);
@@ -50,6 +57,9 @@
 	const foreground = $derived(
 		`/api/media/${post.mediaRef}${needsOriginal(image, zoom.scale) ? '' : '?recipe=display'}`
 	);
+	const sequence = $derived(posts.length ? posts : [post]);
+	const index = $derived(sequence.findIndex((item) => item.id === post.id));
+	const loading = $derived(loadedId !== post.id);
 	const canPan = $derived(
 		image.width * zoom.scale > (manual ? viewportWidth : frameWidth) + 0.5 ||
 			image.height * zoom.scale > viewportHeight + 0.5
@@ -97,6 +107,28 @@
 			if (document.fullscreenElement) void document.exitFullscreen();
 			else void root?.requestFullscreen();
 		}
+		if (typing(event)) return;
+		if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
+			event.preventDefault();
+			move(-1);
+		}
+		if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D') {
+			event.preventDefault();
+			move(1);
+		}
+	}
+
+	function move(delta: number) {
+		const next = sequence[index + delta];
+		if (!next) return;
+		direction = delta;
+		onmove(next.id);
+	}
+
+	function markLoaded(event: Event) {
+		const image = event.currentTarget;
+		if (!(image instanceof HTMLImageElement) || image.dataset.post !== post.id) return;
+		loadedId = post.id;
 	}
 
 	function onwheel(event: WheelEvent) {
@@ -198,34 +230,50 @@
 
 <svelte:window {onkeydown} />
 
-<div
+	<div
 	class="viewer"
 	{@attach viewerRoot}
+	{@attach neighborPrefetch(sequence, post.id, direction)}
 	bind:clientWidth={viewportWidth}
 	bind:clientHeight={viewportHeight}
 	onwheel={onwheel}
 >
 	<img class="backdrop" src={`/api/media/${post.mediaRef}?recipe=backdrop`} alt="" />
-	<div
-		class={['stage', { pannable: canPan, grabbing: dragging }]}
-		role="application"
-		aria-label="Artwork"
-		data-scale={zoom.scale}
-		data-x={zoom.x}
-		data-y={zoom.y}
-		style:left="{left}px"
-		style:top="{top}px"
-		style:width="{image.width}px"
-		style:height="{image.height}px"
-		style:transform="scale({zoom.scale})"
-		onpointerdown={startDrag}
-		onpointermove={drag}
-		onpointerup={endDrag}
-		onpointercancel={endDrag}
-		ondblclick={ondblclick}
-	>
-		<img class="full" src={foreground} alt={post.tags.join(' ')} draggable="false" />
-	</div>
+	{#key post.id}
+		<div
+			class={['stage', { pannable: canPan, grabbing: dragging }]}
+			role="application"
+			aria-label="Artwork"
+			data-scale={zoom.scale}
+			data-x={zoom.x}
+			data-y={zoom.y}
+			style:left="{left}px"
+			style:top="{top}px"
+			style:width="{image.width}px"
+			style:height="{image.height}px"
+			style:transform="scale({zoom.scale})"
+			onpointerdown={startDrag}
+			onpointermove={drag}
+			onpointerup={endDrag}
+			onpointercancel={endDrag}
+			ondblclick={ondblclick}
+		>
+			<img
+				class="full"
+				src={foreground}
+				alt={post.tags.join(' ')}
+				data-post={post.id}
+				draggable="false"
+				onload={markLoaded}
+				onerror={markLoaded}
+			/>
+		</div>
+	{/key}
+	{#if loading}
+		<p class="loading">Loading</p>
+	{/if}
+	<button class="previous" type="button" disabled={index <= 0} onclick={() => move(-1)}>Previous post</button>
+	<button class="next" type="button" disabled={index < 0 || index >= sequence.length - 1} onclick={() => move(1)}>Next post</button>
 	<button class="back" type="button" onclick={onclose}>Back</button>
 	<button class="download" type="button" onclick={downloadOriginal}>Download</button>
 	<button class="favorite" type="button" onclick={favorite}>Favorite</button>
@@ -292,6 +340,31 @@
 
 	.stage.grabbing {
 		cursor: grabbing;
+	}
+
+	.loading {
+		position: absolute;
+		z-index: 4;
+		top: 50%;
+		left: 50%;
+		margin: 0;
+		color: #dddde3;
+		transform: translate(-50%, -50%);
+	}
+
+	.previous,
+	.next {
+		position: absolute;
+		z-index: 8;
+		top: 50%;
+	}
+
+	.previous {
+		left: 18px;
+	}
+
+	.next {
+		right: 18px;
 	}
 
 	.full {

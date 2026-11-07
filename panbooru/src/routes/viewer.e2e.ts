@@ -70,3 +70,66 @@ test('viewer fits, zooms, pans, and leaves fullscreen before it closes', async (
 	await page.keyboard.press('Escape');
 	await expect(page.locator('.viewer')).toHaveCount(0);
 });
+
+test('viewer steps through loaded posts and replaces a slow still', async ({ page }) => {
+	const requested: { url: string; method: string }[] = [];
+	page.on('request', (request) => {
+		if (request.url().includes('/api/media/')) {
+			requested.push({ url: request.url(), method: request.method() });
+		}
+	});
+	await ownerSession(page);
+	await page.goto('/');
+	await page.getByLabel('Tags').fill('sequence');
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	const gallery = page.locator('.gallery img');
+	await expect(gallery).toHaveCount(3);
+	const refs = (await gallery.evaluateAll((images) =>
+		images.map((image) => new URL((image as HTMLImageElement).src).pathname.split('/').at(-1) ?? '')
+	)) as string[];
+
+	await gallery.nth(0).click();
+	const artwork = page.locator('.viewer .full');
+	await expect(page.getByRole('button', { name: 'Previous post' })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Next post' })).toBeEnabled();
+	await expect.poll(() => mediaTraffic(requested, refs[1] ?? '')).toEqual(
+		expect.arrayContaining([expect.stringMatching(/^HEAD /), expect.stringMatching(/recipe=display/)])
+	);
+	expect(mediaTraffic(requested, refs[1] ?? '').some((line) => line.startsWith('GET ') && !line.includes('recipe='))).toBe(
+		false
+	);
+
+	const firstAlt = await artwork.getAttribute('alt');
+	await page.keyboard.press('ArrowLeft');
+	await page.keyboard.press('a');
+	await expect(artwork).toHaveAttribute('alt', firstAlt ?? '');
+
+	await page.keyboard.press('ArrowRight');
+	await expect(artwork).toHaveAttribute('alt', /clip/);
+	await page.keyboard.press('d');
+	await expect(page.getByText('Loading')).toBeVisible();
+	await expect(artwork).toHaveAttribute('alt', /slow/);
+	await expect(artwork).toHaveAttribute('src', new RegExp(refs[2] ?? 'missing'));
+	await expect(page.getByText('Loading')).toBeHidden();
+
+	await page.locator('.viewer .stage').dblclick({ position: { x: 40, y: 30 } });
+	await expect.poll(async () => Math.abs(Number(await page.locator('.viewer .stage').getAttribute('data-x')))).toBeGreaterThan(1);
+	await page.keyboard.press('ArrowLeft');
+	await expect.poll(async () => Number(await page.locator('.viewer .stage').getAttribute('data-x'))).toBeCloseTo(0, 0);
+
+	await page.getByLabel('Album name').focus();
+	await page.keyboard.press('ArrowRight');
+	await expect(artwork).toHaveAttribute('alt', /clip/);
+	await page.locator('.viewer .stage').click();
+	await page.getByRole('button', { name: 'Next post' }).click();
+	await expect(page.getByRole('button', { name: 'Next post' })).toBeDisabled();
+	await page.keyboard.press('ArrowRight');
+	await expect(artwork).toHaveAttribute('alt', /slow/);
+});
+
+function mediaTraffic(requested: { url: string; method: string }[], ref: string) {
+	return requested
+		.filter((entry) => entry.url.includes(`/api/media/${ref}`))
+		.filter((entry) => !entry.url.includes('recipe=thumb'))
+		.map((entry) => `${entry.method} ${entry.url}`);
+}

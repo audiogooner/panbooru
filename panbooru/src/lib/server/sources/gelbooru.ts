@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isVideoFile } from '#lib/server/media/derivative.ts';
 import { eq } from 'drizzle-orm';
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import { sourceCredentials } from '#lib/server/db/schema.ts';
@@ -93,7 +94,8 @@ export function normalizePosts(json: unknown, media: Map<string, MediaTarget>) {
 			width: Number(post.width ?? 0),
 			height: Number(post.height ?? 0),
 			rating: String(post.rating ?? ''),
-			mediaRef
+			mediaRef,
+			kind: isVideoFile(fileUrl) ? 'video' : 'image'
 		};
 	});
 }
