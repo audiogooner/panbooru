@@ -1,13 +1,23 @@
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	unlinkSync,
+	writeFileSync
+} from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startApp, type RunningApp } from '#lib/server/app.ts';
+import { hashPassword } from '#lib/server/auth/password.ts';
 import { openDatabase, type AppDatabase } from '#lib/server/db/index.ts';
-import { createBackup } from '#lib/server/library/backup.ts';
+import { createBackup, restoreBackup } from '#lib/server/library/backup.ts';
+import { encryptCredential } from '#lib/server/secrets/cipher.ts';
 import { promoteOriginal } from '#lib/server/library/original.ts';
 import { handleLibrary } from '#lib/server/library/routes.ts';
 import {
@@ -240,7 +250,161 @@ describe('verified backup', () => {
 		});
 		expect((await app.fetch('/api/backups', { method: 'POST' })).status).toBe(401);
 	});
+
+	it('restores favorites, album membership, and ready originals into an empty directory', async () => {
+		const { db, dataDir } = await database();
+		const body = Buffer.from('sunset-original');
+		readyOriginal(db, dataDir, sunset, body);
+		const backup = await createBackup({ db, dataDir });
+		const target = await mkdtemp(join(tmpdir(), 'panbooru-restore-'));
+		directories.push(target);
+		const restored = await restoreBackup({
+			backupDir: join(dataDir, 'backups', backup.id),
+			dataDir: target
+		});
+		expect(restored.missing).toEqual([]);
+		expect(readFileSync(join(target, 'media', 'originals', sha256(body)))).toEqual(body);
+		const copy = openDatabase(target);
+		databases.push(copy);
+		expect(copy.$client.prepare('select count(*) as n from favorites').get()).toEqual({ n: 1 });
+		expect(copy.$client.prepare('select count(*) as n from album_items').get()).toEqual({ n: 1 });
+		expect(copy.$client.prepare('select state from media_objects').get()).toEqual({
+			state: 'ready'
+		});
+	});
+
+	it('records a missing original and keeps the library row', async () => {
+		const { db, dataDir } = await database();
+		const body = Buffer.from('sunset-original');
+		readyOriginal(db, dataDir, sunset, body);
+		const backup = await createBackup({ db, dataDir });
+		const original = backup.manifest.files.find((file) => file.path.startsWith('media/originals/'));
+		expect(original).toBeTruthy();
+		unlinkSync(join(dataDir, 'backups', backup.id, ...(original?.path.split('/') ?? [])));
+		const target = await mkdtemp(join(tmpdir(), 'panbooru-restore-'));
+		directories.push(target);
+		const restored = await restoreBackup({
+			backupDir: join(dataDir, 'backups', backup.id),
+			dataDir: target
+		});
+		expect(restored.missing).toContainEqual({ path: original?.path, reason: 'missing' });
+		const copy = openDatabase(target);
+		databases.push(copy);
+		expect(copy.$client.prepare('select count(*) as n from saved_items').get()).toEqual({ n: 1 });
+		expect(copy.$client.prepare('select count(*) as n from favorites').get()).toEqual({ n: 1 });
+		expect(copy.$client.prepare('select state from media_objects').get()).toEqual({
+			state: 'missing'
+		});
+	});
+
+	it('serves a restored original without upstream and explains a missing or wrong key', async () => {
+		const { db, dataDir } = await database();
+		const body = Buffer.from('sunset-original');
+		const saved = readyOriginal(db, dataDir, sunset, body);
+		const keyPath = join(dataDir, 'secrets', 'master.key');
+		mkdirSync(join(dataDir, 'secrets'), { recursive: true });
+		writeFileSync(keyPath, randomBytes(32));
+		const record = encryptCredential(new TextEncoder().encode('super-secret-api-key'), {
+			keyPath,
+			associatedData: 'gelbooru:1'
+		});
+		db.$client
+			.prepare(
+				`insert into owner (singleton, password_hash, auth_version, created_at, updated_at)
+				 values (1, ?, 1, 1, 1)`
+			)
+			.run(await hashPassword(password));
+		db.$client
+			.prepare(
+				`insert into source_credentials (
+					source, ciphertext, nonce, auth_tag, key_version, user_id, validated
+				) values ('gelbooru', ?, ?, ?, ?, '7', 1)`
+			)
+			.run(
+				Buffer.from(record.ciphertext),
+				Buffer.from(record.nonce),
+				Buffer.from(record.tag),
+				record.keyVersion
+			);
+		const backup = await createBackup({ db, dataDir });
+		const target = await mkdtemp(join(tmpdir(), 'panbooru-restore-'));
+		directories.push(target);
+		await restoreBackup({ backupDir: join(dataDir, 'backups', backup.id), dataDir: target });
+		const before = credentialCiphertext(target);
+
+		const absentKey = join(target, 'secrets', 'master.key');
+		const blocked = await startApp({
+			dataDir: target,
+			secretPath: absentKey,
+			fetchUpstream: async () => {
+				throw new Error('upstream blocked');
+			}
+		});
+		const closeBlocked = () => blocked.close();
+		cleanups.push(closeBlocked);
+		const cookie = await login(blocked);
+		const original = await blocked.fetch(`/api/library/originals/${saved.itemId}`, {
+			headers: { cookie }
+		});
+		expect(original.status).toBe(200);
+		expect(Buffer.from(await original.arrayBuffer())).toEqual(body);
+		const unavailable = await blocked.fetch('/api/source/gelbooru/search', {
+			method: 'POST',
+			headers: { origin: blocked.origin, cookie, 'content-type': 'application/json' },
+			body: JSON.stringify({ query: 'landscape' })
+		});
+		expect(unavailable.status).toBe(503);
+		const payload = (await unavailable.json()) as { code: string; message: string };
+		expect(payload.code).toBe('SECRET_UNAVAILABLE');
+		expect(payload.message.toLowerCase()).toContain('key');
+		expect(existsSync(absentKey)).toBe(false);
+		expect(credentialCiphertext(target)).toEqual(before);
+		await closeBlocked();
+		cleanups.splice(cleanups.indexOf(closeBlocked), 1);
+
+		const wrong = randomBytes(32);
+		await mkdir(join(target, 'secrets'), { recursive: true });
+		await writeFile(absentKey, wrong);
+		const replaced = await startApp({
+			dataDir: target,
+			secretPath: absentKey,
+			fetchUpstream: async () => {
+				throw new Error('upstream blocked');
+			}
+		});
+		cleanups.push(() => replaced.close());
+		const again = await login(replaced);
+		expect(
+			(await replaced.fetch('/api/settings/gelbooru', { headers: { cookie: again } })).status
+		).toBe(200);
+		const settings = (await (
+			await replaced.fetch('/api/settings/gelbooru', { headers: { cookie: again } })
+		).json()) as { data: { unavailable?: boolean; apiKey?: string } };
+		expect(settings.data.unavailable).toBe(true);
+		expect(settings.data.apiKey).toBeUndefined();
+		expect(await readFile(absentKey)).toEqual(wrong);
+		expect(credentialCiphertext(target)).toEqual(before);
+	});
 });
+
+function credentialCiphertext(dataDir: string) {
+	const sqlite = new Database(join(dataDir, 'db', 'panbooru.sqlite'), { readonly: true });
+	const row = sqlite.prepare('select ciphertext from source_credentials').get() as {
+		ciphertext: Buffer;
+	};
+	sqlite.close();
+	return Buffer.from(row.ciphertext);
+}
+
+async function login(app: RunningApp) {
+	const response = await app.fetch('/api/auth/login', {
+		method: 'POST',
+		headers: { origin: app.origin, 'content-type': 'application/json' },
+		body: JSON.stringify({ password })
+	});
+	expect(response.status).toBe(200);
+	return (response.headers.get('set-cookie') ?? '').split(';')[0];
+}
 
 async function ownerCookie(app: RunningApp, dataDir: string) {
 	const token = (await readFile(join(dataDir, 'bootstrap.token'), 'utf8')).trim();

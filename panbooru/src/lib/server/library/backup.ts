@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { copyFile as copyFileFs, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
-import { copyFile as copyFileFs } from 'node:fs/promises';
+import Database from 'better-sqlite3';
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
@@ -103,6 +104,74 @@ export async function createBackup(source: BackupSource, options: BackupOptions 
 	} finally {
 		if (held) leaveMaintenance(source.dataDir);
 	}
+}
+
+export async function restoreBackup(options: { backupDir: string; dataDir: string }) {
+	const manifest = JSON.parse(
+		await readFile(join(options.backupDir, 'manifest.json'), 'utf8')
+	) as BackupManifest;
+	if (manifest.format !== 'panbooru-backup-1' || !manifest.complete) {
+		throw new Error('backup manifest is incomplete');
+	}
+	const missing: { path: string; reason: string }[] = [];
+	for (const file of manifest.files) {
+		const parts = file.path.split('/');
+		if (file.path.startsWith('/') || parts.includes('..') || parts.includes('')) {
+			throw new Error('backup path is unsafe');
+		}
+		const source = join(options.backupDir, ...parts);
+		if (!existsSync(source)) {
+			missing.push({ path: file.path, reason: 'missing' });
+			continue;
+		}
+		const hashed = createHash('sha256')
+			.update(await readFile(source))
+			.digest('hex');
+		if (hashed !== file.sha256) throw new Error('backup hash did not match');
+	}
+	const databaseFile = manifest.files.find((file) => file.path === 'db/panbooru.sqlite');
+	if (!databaseFile || missing.some((file) => file.path === databaseFile.path)) {
+		throw new Error('backup database is missing');
+	}
+	await mkdir(join(options.dataDir, 'db'), { recursive: true });
+	const snapshot = new Database(join(options.backupDir, 'db', 'panbooru.sqlite'), {
+		readonly: true,
+		fileMustExist: true
+	});
+	try {
+		await snapshot.backup(join(options.dataDir, 'db', 'panbooru.sqlite'));
+	} finally {
+		snapshot.close();
+	}
+	for (const file of manifest.files) {
+		if (!file.path.startsWith('media/') || missing.some((item) => item.path === file.path))
+			continue;
+		const destination = join(options.dataDir, ...file.path.split('/'));
+		await mkdir(dirname(destination), { recursive: true });
+		await copyFileFs(join(options.backupDir, ...file.path.split('/')), destination);
+	}
+	const restored = new Database(join(options.dataDir, 'db', 'panbooru.sqlite'));
+	try {
+		const rows = restored
+			.prepare(
+				`select id, relative_path as relativePath
+				 from media_objects
+				 where state = 'ready'`
+			)
+			.all() as { id: string; relativePath: string | null }[];
+		const markMissing = restored.prepare(`update media_objects set state = 'missing' where id = ?`);
+		for (const row of rows) {
+			const relative = row.relativePath ? portable(row.relativePath) : '';
+			if (relative && existsSync(join(options.dataDir, ...relative.split('/')))) continue;
+			markMissing.run(row.id);
+			if (relative && !missing.some((item) => item.path === relative)) {
+				missing.push({ path: relative, reason: 'missing' });
+			}
+		}
+	} finally {
+		restored.close();
+	}
+	return { missing };
 }
 
 export async function handleBackup(

@@ -1,6 +1,11 @@
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import type { AppDatabase } from '#lib/server/db/index.ts';
-import { gelbooruJson, normalizeTags, readGelbooruAuth } from '#lib/server/sources/gelbooru.ts';
+import {
+	gelbooruCredentialState,
+	gelbooruJson,
+	normalizeTags,
+	readGelbooruAuth
+} from '#lib/server/sources/gelbooru.ts';
 
 export type TagCategory = {
 	name: string;
@@ -47,6 +52,7 @@ export async function refreshSavedTags(services: AppServices) {
 	const source = 'gelbooru';
 	const names = savedTagNames(services.db, source);
 	if (!names.length) return;
+	if (gelbooruCredentialState(services.db, services.secretPath) === 'unavailable') return;
 	const base = services.fixtureOrigin ?? 'https://gelbooru.com';
 	try {
 		const result = await gelbooruJson(

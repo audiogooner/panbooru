@@ -9,6 +9,7 @@ import { owner, sessions, sourceCredentials } from '#lib/server/db/schema.ts';
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher.ts';
+import { gelbooruCredentialState } from '#lib/server/sources/gelbooru.ts';
 import { probeGelbooruCredentials, type MediaTarget } from '#lib/server/sources/gelbooru.ts';
 import { handleBackup } from '#lib/server/library/backup.ts';
 import { handleLibrary } from '#lib/server/library/routes.ts';
@@ -295,6 +296,14 @@ export async function dispatch(request: Request, services: AppServices): Promise
 			.where(eq(sourceCredentials.source, 'gelbooru'))
 			.get();
 		if (!row) return jsonData({ configured: false, validated: false });
+		if (gelbooruCredentialState(services.db, services.secretPath) === 'unavailable') {
+			return jsonData({
+				configured: true,
+				validated: false,
+				unavailable: true,
+				userId: row.userId
+			});
+		}
 		return jsonData({ configured: true, validated: row.validated === 1, userId: row.userId });
 	}
 

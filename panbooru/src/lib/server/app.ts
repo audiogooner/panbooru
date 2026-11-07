@@ -6,6 +6,7 @@ import { dirname } from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import {
 	applyEnvCredentials,
 	ensureBootstrap,
@@ -59,14 +60,28 @@ export function healthResponse() {
 	);
 }
 
+function storedCredentials(dataDir: string) {
+	const path = join(dataDir, 'db', 'panbooru.sqlite');
+	if (!existsSync(path)) return false;
+	const sqlite = new Database(path, { readonly: true });
+	try {
+		const row = sqlite.prepare('select 1 as ok from source_credentials limit 1').get();
+		return Boolean(row);
+	} catch {
+		return false;
+	} finally {
+		sqlite.close();
+	}
+}
+
 export function createServices(options: StartAppOptions = {}): AppServices {
 	const config = readConfig(options);
-	if (config.secretPath && !existsSync(config.secretPath)) {
-		mkdirSync(dirname(config.secretPath), { recursive: true });
-		writeFileSync(config.secretPath, randomBytes(32), { mode: 0o600 });
-	}
 	for (const directory of ['media/originals', 'media/derivatives', 'cache', 'tmp']) {
 		mkdirSync(join(config.dataDir, directory), { recursive: true });
+	}
+	if (config.secretPath && !existsSync(config.secretPath) && !storedCredentials(config.dataDir)) {
+		mkdirSync(dirname(config.secretPath), { recursive: true });
+		writeFileSync(config.secretPath, randomBytes(32), { mode: 0o600 });
 	}
 	const fixtureOrigin = config.fixtureOrigin;
 	return {

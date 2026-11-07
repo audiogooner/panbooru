@@ -18,14 +18,17 @@ const categories: Record<string, string> = {
 export type UpstreamResult =
 	{ ok: true; json: unknown } | { ok: false; reason: 'auth' | 'invalid' };
 
-export function readGelbooruAuth(db: AppDatabase, secretPath?: string) {
-	if (!secretPath) return {};
-	const row = db
-		.select()
-		.from(sourceCredentials)
-		.where(eq(sourceCredentials.source, 'gelbooru'))
-		.get();
-	if (!row) return {};
+function credentialRow(db: AppDatabase) {
+	return db.select().from(sourceCredentials).where(eq(sourceCredentials.source, 'gelbooru')).get();
+}
+
+export function gelbooruCredentialState(
+	db: AppDatabase,
+	secretPath?: string
+): 'absent' | 'ready' | 'unavailable' {
+	const row = credentialRow(db);
+	if (!row) return 'absent';
+	if (!secretPath) return 'unavailable';
 	try {
 		const apiKey = new TextDecoder().decode(
 			decryptCredential(
@@ -38,11 +41,29 @@ export function readGelbooruAuth(db: AppDatabase, secretPath?: string) {
 				{ keyPath: secretPath, associatedData: 'gelbooru:1' }
 			)
 		);
-		if (!apiKey || !row.userId) return {};
-		return { user_id: row.userId, api_key: apiKey };
+		if (!apiKey || !row.userId) return 'unavailable';
+		return 'ready';
 	} catch {
-		return {};
+		return 'unavailable';
 	}
+}
+
+export function readGelbooruAuth(db: AppDatabase, secretPath?: string) {
+	if (gelbooruCredentialState(db, secretPath) !== 'ready') return {};
+	const row = credentialRow(db);
+	if (!row || !secretPath) return {};
+	const apiKey = new TextDecoder().decode(
+		decryptCredential(
+			{
+				ciphertext: row.ciphertext,
+				nonce: row.nonce,
+				tag: row.authTag,
+				keyVersion: row.keyVersion
+			},
+			{ keyPath: secretPath, associatedData: 'gelbooru:1' }
+		)
+	);
+	return { user_id: row.userId, api_key: apiKey };
 }
 
 export async function gelbooruJson(

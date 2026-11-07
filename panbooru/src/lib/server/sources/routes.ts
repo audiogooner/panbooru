@@ -3,6 +3,7 @@ import { serveMedia } from '#lib/server/media/serve.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { compileRatingTags } from '#lib/server/library/rating-tags.ts';
 import {
+	gelbooruCredentialState,
 	gelbooruJson,
 	normalizePosts,
 	normalizeTags,
@@ -27,6 +28,12 @@ export async function handleSource(
 ) {
 	const base = services.fixtureOrigin ?? 'https://gelbooru.com';
 	const session = () => hasSession;
+	if (url.pathname.startsWith('/api/source/gelbooru/')) {
+		if (!session()) return jsonError('UNAUTHORIZED', 'Session required', 401);
+		if (gelbooruCredentialState(services.db, services.secretPath) === 'unavailable') {
+			return jsonError('SECRET_UNAVAILABLE', 'Master key is unavailable', 503);
+		}
+	}
 
 	if (request.method === 'POST' && url.pathname === '/api/source/gelbooru/search') {
 		if (!session()) return jsonError('UNAUTHORIZED', 'Session required', 401);
