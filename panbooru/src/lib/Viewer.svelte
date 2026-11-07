@@ -169,7 +169,11 @@
 	// Keep the thumb under the foreground until decode + paint, then dismiss for single-.full locators.
 	const showPreview = $derived(previewSrc !== foreground && previewCleared !== post.id);
 	const previewReady = $derived(previewId === post.id);
-	const ghost = $derived(loading && held && held.id !== post.id ? held : null);
+	const ghost = $derived(
+		loading && held && held.id !== post.id && !(showPreview && previewReady)
+			? held
+			: null
+	);
 	const canPan = $derived(
 		image.width * zoom.scale > (manual ? viewportWidth : frameWidth) + 0.5 ||
 			image.height * zoom.scale > viewportHeight + 0.5
