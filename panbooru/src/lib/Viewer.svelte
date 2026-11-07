@@ -1375,7 +1375,7 @@
 	}
 
 	.tag-group {
-		margin-bottom: 24px;
+		margin-bottom: 12px;
 	}
 
 	.tag-group:last-child {
@@ -1383,7 +1383,7 @@
 	}
 
 	.tag-group h3 {
-		margin: 0 0 10px;
+		margin: 0 0 5px;
 		color: #c6cdd8;
 		font-size: 11px;
 		font-weight: 650;
@@ -1393,13 +1393,13 @@
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
-		gap: 12px;
+		gap: 10px;
 		width: 100%;
 		height: auto;
-		padding: 5px 0;
+		padding: 2px 0;
 		border: 0;
 		background: none;
-		line-height: 1.5;
+		line-height: 1.4;
 		text-align: left;
 	}
 
