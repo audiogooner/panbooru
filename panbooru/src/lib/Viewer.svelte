@@ -1322,7 +1322,7 @@
 	.right-panel {
 		position: absolute;
 		z-index: 5;
-		top: 72px;
+		top: 64px;
 		right: 8px;
 		bottom: 8px;
 		width: calc(var(--view-right) - 8px);
@@ -1337,7 +1337,7 @@
 
 	.details,
 	.tags-card {
-		margin-bottom: 9px;
+		margin-bottom: 8px;
 		padding: 18px;
 		border-radius: 14px;
 	}
