@@ -7,7 +7,9 @@ declare global {
 			authenticated: boolean;
 		}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			cursor?: number;
+		}
 		// interface Platform {}
 	}
 }

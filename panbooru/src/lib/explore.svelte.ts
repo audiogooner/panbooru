@@ -1,3 +1,5 @@
+import { browser } from '$app/env';
+import { goto } from '$app/navigation';
 import {
 	appendTag,
 	back,
@@ -11,11 +13,30 @@ import {
 	type ExplorationPost,
 	type NavigationState
 } from '#lib/navigation.ts';
+import { readHistoryCursor, rehydrateHistory } from '#lib/workspace.ts';
 
 export const navigation = $state(createNavigation());
 export const viewerChrome = $state({ edge: false });
 
 let historyCursor = 0;
+let historyEpoch = 0;
+
+if (browser) {
+	try {
+		const url = location.href;
+		historyCursor = rehydrateHistory(history.state, ({ cursor }) => {
+			const epoch = historyEpoch;
+			// The router finishes starting after this module initializes. A shallow replace
+			// before that throws, and it must not push a second entry for the reloaded page.
+			setTimeout(() => {
+				if (epoch !== historyEpoch || location.href !== url) return;
+				void goto(url, { state: { cursor }, shallow: true, replace: true });
+			}, 0);
+		});
+	} catch {
+		historyCursor = 0;
+	}
+}
 
 function apply(next: NavigationState) {
 	navigation.views = next.views;
@@ -43,14 +64,20 @@ export function removeView(id: string) {
 
 export function commitNavigation(next: NavigationState) {
 	apply(next);
+	historyEpoch += 1;
 	historyCursor += 1;
-	history.pushState({ cursor: historyCursor }, '', location.href);
+	if (!browser) return;
+	const cursor = historyCursor;
+	void goto(location.href, { state: { cursor }, shallow: true });
 }
 
 export function popNavigation(cursor: number) {
-	if (cursor === historyCursor) return;
-	apply(cursor < historyCursor ? back(navigation) : forward(navigation));
-	historyCursor = cursor;
+	// Shallow entries keep the cursor in SvelteKit's history metadata. A top-level
+	// `event.state.cursor` is only present on entries written before that change.
+	const next = browser ? readHistoryCursor(history.state) : cursor;
+	if (next === historyCursor) return;
+	apply(next < historyCursor ? back(navigation) : forward(navigation));
+	historyCursor = next;
 }
 
 export function branchTag(tag: string) {
