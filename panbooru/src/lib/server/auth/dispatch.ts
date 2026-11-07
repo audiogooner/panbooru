@@ -12,6 +12,7 @@ import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher
 import { gelbooruCredentialState } from '#lib/server/sources/gelbooru.ts';
 import { probeGelbooruCredentials, type MediaTarget } from '#lib/server/sources/gelbooru.ts';
 import { handleBackup } from '#lib/server/library/backup.ts';
+import { handleImport } from '#lib/server/library/import.ts';
 import { handleLibrary } from '#lib/server/library/routes.ts';
 import { type UpstreamRequest } from '#lib/server/media/range.ts';
 import { handleSource } from '#lib/server/sources/routes.ts';
@@ -218,7 +219,10 @@ export async function dispatch(request: Request, services: AppServices): Promise
 		(request.method === 'GET' || request.method === 'HEAD') &&
 		url.pathname.startsWith('/api/media/');
 	if (
-		(request.method === 'POST' || request.method === 'DELETE' || readsMedia) &&
+		(request.method === 'POST' ||
+			request.method === 'PUT' ||
+			request.method === 'DELETE' ||
+			readsMedia) &&
 		!sameOrigin(request)
 	) {
 		return jsonError('FORBIDDEN', 'Cross-origin request rejected', 403);
@@ -332,6 +336,8 @@ export async function dispatch(request: Request, services: AppServices): Promise
 	if (library) return library;
 	const backup = await handleBackup(request, url, services, session);
 	if (backup) return backup;
+	const imported = await handleImport(request, url, services, session);
+	if (imported) return imported;
 
 	if (url.pathname.startsWith('/api/')) {
 		return jsonError('NOT_FOUND', 'Not found', 404);
