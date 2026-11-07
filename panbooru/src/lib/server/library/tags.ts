@@ -59,6 +59,7 @@ export async function refreshSavedTags(services: AppServices) {
 			base,
 			{
 				s: 'tag',
+				q: 'index',
 				names: names.join(' '),
 				...readGelbooruAuth(services.db, services.secretPath)
 			},

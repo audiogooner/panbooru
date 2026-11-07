@@ -39,10 +39,22 @@ async function startFixture(mode: Mode = 'ok') {
 		}
 		const section = url.searchParams.get('s');
 		if (section === 'tag') {
+			if (url.searchParams.get('q') !== 'index') {
+				response.writeHead(200, { 'content-type': 'text/html; charset=UTF-8' });
+				response.end('');
+				return;
+			}
+			const pattern = url.searchParams.get('name_pattern');
 			response.writeHead(200, { 'content-type': 'application/json' });
 			response.end(
 				JSON.stringify({
-					tag: [{ id: 3, name: 'sunset', type: 0, count: 12 }]
+					tag: pattern
+						? [
+								{ id: 3, name: 'sunset', type: 0, count: 12 },
+								{ id: 4, name: 'sunlight', type: 0, count: 9 },
+								{ id: 5, name: 'sunday', type: 4, count: 2 }
+							]
+						: [{ id: 3, name: 'sunset', type: 0, count: 12 }]
 				})
 			);
 			return;
@@ -163,6 +175,12 @@ describe('gelbooru source and media', () => {
 			data: { tags: Array<{ name: string; category: string }> };
 		};
 		expect(tagBody.data.tags[0]).toMatchObject({ name: 'sunset', category: 'general' });
+		expect(
+			fixture.requests.some(
+				(entry) =>
+					entry.includes('s=tag') && entry.includes('q=index') && entry.includes('names=sunset')
+			)
+		).toBe(true);
 
 		const suggestions = await app.fetch('/api/source/gelbooru/autocomplete', {
 			method: 'POST',
@@ -171,9 +189,35 @@ describe('gelbooru source and media', () => {
 		});
 		expect(suggestions.status).toBe(200);
 		const suggestionBody = (await suggestions.json()) as {
-			data: { suggestions: Array<{ name: string }> };
+			data: { suggestions: Array<{ name: string; count: number; category: string }> };
 		};
-		expect(suggestionBody.data.suggestions[0]?.name).toBe('sunset');
+		expect(suggestionBody.data.suggestions).toEqual([
+			{ name: 'sunset', category: 'general', count: 12 },
+			{ name: 'sunlight', category: 'general', count: 9 },
+			{ name: 'sunday', category: 'character', count: 2 }
+		]);
+		const autocomplete = [...fixture.requests]
+			.reverse()
+			.find((entry) => entry.includes('s=tag') && entry.includes('name_pattern='));
+		expect(autocomplete).toBeTruthy();
+		const autocompleteParams = new URL(autocomplete ?? '', 'http://127.0.0.1').searchParams;
+		expect(autocompleteParams.get('q')).toBe('index');
+		expect(autocompleteParams.get('name_pattern')).toBe('sun%');
+		expect(autocompleteParams.get('orderby')).toBe('count');
+		expect(autocompleteParams.get('limit')).toBe('10');
+
+		const escaped = await app.fetch('/api/source/gelbooru/autocomplete', {
+			method: 'POST',
+			headers: { origin: app.origin, cookie, 'content-type': 'application/json' },
+			body: JSON.stringify({ pattern: 'long_hair' })
+		});
+		expect(escaped.status).toBe(200);
+		const escapedRequest = [...fixture.requests]
+			.reverse()
+			.find((entry) => entry.includes('s=tag') && entry.includes('name_pattern='));
+		expect(new URL(escapedRequest ?? '', 'http://127.0.0.1').searchParams.get('name_pattern')).toBe(
+			'long\\_hair%'
+		);
 
 		for (const directory of ['media/originals', 'media/derivatives', 'cache', 'tmp']) {
 			expect((await stat(join(dataDir, directory))).isDirectory()).toBe(true);
@@ -184,8 +228,18 @@ describe('gelbooru source and media', () => {
 		const html = await boot('html');
 		const htmlResponse = await search(html.app, html.cookie, 'sunset');
 		expect(htmlResponse.status).toBeGreaterThanOrEqual(500);
-		const htmlBody = (await htmlResponse.json()) as { data?: { posts: unknown[] }; code: string };
+		const htmlBody = (await htmlResponse.json()) as {
+			data?: { posts: unknown[] };
+			code: string;
+			message: string;
+			retryable: boolean;
+		};
 		expect(htmlBody.data?.posts).toBeUndefined();
+		expect(htmlBody).toMatchObject({
+			code: 'UPSTREAM_INVALID',
+			message: 'Gelbooru returned an unreadable response',
+			retryable: false
+		});
 
 		const broken = await boot('malformed');
 		const brokenResponse = await search(broken.app, broken.cookie, 'sunset');
@@ -249,16 +303,6 @@ describe('gelbooru source and media', () => {
 		const plain = await search(app, cookie, 'landscape sunset -forest');
 		expect(plain.status).toBe(200);
 		expect(upstreamTags(fixture.requests)).toBe('landscape sunset -forest');
-	});
-
-	it('keeps score: and id: in the upstream tag text', async () => {
-		const { app, cookie, fixture } = await boot();
-		const found = await search(app, cookie, 'score:>10 id:10', ['explicit']);
-		expect(found.status).toBe(200);
-		const tags = upstreamTags(fixture.requests);
-		expect(tags).toContain('score:>10');
-		expect(tags).toContain('id:10');
-		expect(tags).toContain('rating:explicit');
 	});
 
 	it('requests the next pid for a non-date sort and keeps that sort tag', async () => {

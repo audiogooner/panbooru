@@ -14,6 +14,12 @@ function sourceParams(services: AppServices, params: Record<string, string>) {
 	return { ...params, ...readGelbooruAuth(services.db, services.secretPath) };
 }
 
+/** Gelbooru `name_pattern` is SQL LIKE. `%` is the wildcard; `*` matches nothing. `_` is one character. */
+function tagPrefix(pattern: string) {
+	if (!pattern) return pattern;
+	return `${pattern.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+}
+
 function upstreamError(result: { reason: 'auth' | 'invalid' }) {
 	if (result.reason === 'auth')
 		return jsonError('SOURCE_AUTH_REQUIRED', 'Gelbooru rejected the request', 502);
@@ -84,7 +90,7 @@ export async function handleSource(
 			: [];
 		const result = await gelbooruJson(
 			base,
-			sourceParams(services, { s: 'tag', names: names.join(' ') }),
+			sourceParams(services, { s: 'tag', q: 'index', names: names.join(' ') }),
 			services.fetchUpstream,
 			services.log
 		);
@@ -98,7 +104,13 @@ export async function handleSource(
 		const pattern = typeof body?.pattern === 'string' ? body.pattern : '';
 		const result = await gelbooruJson(
 			base,
-			sourceParams(services, { s: 'tag', name_pattern: pattern, limit: '10' }),
+			sourceParams(services, {
+				s: 'tag',
+				q: 'index',
+				name_pattern: tagPrefix(pattern),
+				orderby: 'count',
+				limit: '10'
+			}),
 			services.fetchUpstream,
 			services.log
 		);
