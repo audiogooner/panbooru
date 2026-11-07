@@ -101,3 +101,28 @@ test('a favorited fixture post is shown from the saved file', async ({ page }) =
 	await expect(page.getByText('No favorites yet.')).toBeVisible();
 	await expect(page.getByRole('img')).toHaveCount(0);
 });
+
+test('a favorites search filters by a tag from the saved post', async ({ page }) => {
+	await ownerSession(page);
+	await page.goto('/favorites');
+	await expect(page.getByText('No favorites yet.')).toBeVisible();
+
+	await openLandscape(page);
+	const saved = page.waitForResponse(
+		(response) => response.url().includes('/api/library/favorites') && response.ok()
+	);
+	await page.getByRole('button', { name: 'Favorite', exact: true }).click();
+	await saved;
+
+	await page.goto('/favorites');
+	await page.getByLabel('Tags').fill('sunset');
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await expect(page).toHaveURL(/[?&]q=sunset(?:&|$)/);
+	await expect(page.getByRole('img')).toHaveCount(1);
+
+	await page.getByLabel('Tags').fill('forest');
+	await page.getByRole('button', { name: 'Search', exact: true }).click();
+	await expect(page).toHaveURL(/[?&]q=forest(?:&|$)/);
+	await expect(page.getByText('No results')).toBeVisible();
+	await expect(page.getByLabel('Tags')).toHaveValue('forest');
+});
