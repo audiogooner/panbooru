@@ -68,7 +68,10 @@
 		await load(draft);
 	}
 
-	async function onTag(tag: string, event: MouseEvent) {
+	async function onTag(
+		tag: string,
+		event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean }
+	) {
 		suggestions = [];
 		if (queryFromTag(tag, event)) await load(activeView().query);
 	}

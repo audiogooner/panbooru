@@ -20,6 +20,8 @@
 		type Zoom
 	} from '#lib/zoom.ts';
 
+	const DETAILS_MIN = 160;
+	const DETAILS_MAX = 560;
 	const DETAILS_PANEL = 292;
 
 	let {
@@ -32,10 +34,14 @@
 		post: ExplorationPost;
 		posts?: ExplorationPost[];
 		onclose: () => void;
-		ontag: (tag: string, event: MouseEvent) => void;
+		ontag: (
+			tag: string,
+			event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean }
+		) => void;
 		onmove: (id: string) => void;
 	} = $props();
 	let tagsOpen = $state(false);
+	let detailsWidth = $state(DETAILS_PANEL);
 	let albumName = $state('');
 	let root = $state<HTMLElement | null>(null);
 	let viewportWidth = $state(1);
@@ -57,7 +63,7 @@
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
 	const manual = $derived(manualZoom !== null && manualId === post.id);
 	const frameWidth = $derived(
-		Math.max(1, viewportWidth - (manual || !tagsOpen ? 0 : DETAILS_PANEL))
+		Math.max(1, viewportWidth - (manual || !tagsOpen ? 0 : detailsWidth))
 	);
 	const zoom = $derived(
 		manual && manualZoom
@@ -109,6 +115,22 @@
 		return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 	}
 
+	function onTagKey(tag: string, event: KeyboardEvent) {
+		if (event.key !== 'Enter' || event.altKey || event.repeat) return;
+		event.preventDefault();
+		event.stopPropagation();
+		ontag(tag, event);
+	}
+
+	function resizeDetails(event: KeyboardEvent) {
+		if (typing(event)) return;
+		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+		event.preventDefault();
+		event.stopPropagation();
+		const delta = event.key === 'ArrowRight' ? 16 : -16;
+		detailsWidth = Math.min(DETAILS_MAX, Math.max(DETAILS_MIN, detailsWidth + delta));
+	}
+
 	function onkeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			if (document.fullscreenElement) {
@@ -123,6 +145,13 @@
 			toggleFullscreen();
 		}
 		if (typing(event)) return;
+		if (
+			(event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
+			event.target instanceof HTMLElement &&
+			event.target.getAttribute('role') === 'separator'
+		) {
+			return;
+		}
 		if (playableVideo && (event.key === 'j' || event.key === 'J')) {
 			event.preventDefault();
 			seekBy(-10);
@@ -203,11 +232,14 @@
 			node.pause();
 			return;
 		}
-		void node.play().then(() => {
-			if (!node.isConnected) node.pause();
-		}).catch(() => {
-			paused = true;
-		});
+		void node
+			.play()
+			.then(() => {
+				if (!node.isConnected) node.pause();
+			})
+			.catch(() => {
+				paused = true;
+			});
 	}
 
 	function trackVideo(event: Event) {
@@ -374,13 +406,13 @@
 
 <svelte:window {onkeydown} />
 
-	<div
+<div
 	class="viewer"
 	{@attach viewerRoot}
 	{@attach neighborPrefetch(sequence, post.id, direction)}
 	bind:clientWidth={viewportWidth}
 	bind:clientHeight={viewportHeight}
-	onwheel={onwheel}
+	{onwheel}
 >
 	<img class="backdrop" src={`/api/media/${post.mediaRef}?recipe=backdrop`} alt="" />
 	{#if playableVideo}
@@ -403,7 +435,8 @@
 					ontimeupdate={trackVideo}
 					onerror={(event) => {
 						const node = event.currentTarget;
-						if (node instanceof HTMLVideoElement && node.dataset.post === post.id) loadedId = post.id;
+						if (node instanceof HTMLVideoElement && node.dataset.post === post.id)
+							loadedId = post.id;
 					}}
 				>
 					<track kind="captions" label="Captions" srclang="en" src="data:text/vtt,WEBVTT" />
@@ -453,7 +486,7 @@
 				onpointermove={drag}
 				onpointerup={endDrag}
 				onpointercancel={endDrag}
-				ondblclick={ondblclick}
+				{ondblclick}
 			>
 				<img
 					class="full"
@@ -470,24 +503,46 @@
 	{#if loading}
 		<p class="loading">Loading</p>
 	{/if}
-	<button class="previous" type="button" disabled={index <= 0} onclick={() => move(-1)}>Previous post</button>
-	<button class="next" type="button" disabled={index < 0 || index >= sequence.length - 1} onclick={() => move(1)}>Next post</button>
+	<button class="previous" type="button" disabled={index <= 0} onclick={() => move(-1)}
+		>Previous post</button
+	>
+	<button
+		class="next"
+		type="button"
+		disabled={index < 0 || index >= sequence.length - 1}
+		onclick={() => move(1)}>Next post</button
+	>
 	<button class="back" type="button" onclick={onclose}>Back</button>
 	<button class="download" type="button" onclick={downloadOriginal}>Download</button>
 	<button class="favorite" type="button" onclick={favorite}>Favorite</button>
 	<button class="tags" type="button" onclick={() => (tagsOpen = !tagsOpen)}>Show tags</button>
 	{#if tagsOpen}
-		<ul aria-label="Post tags">
+		<ul aria-label="Post tags" style:width="{Math.max(detailsWidth - 52, 120)}px">
 			{#each post.tags as tag (tag)}
-				<li><button type="button" onclick={(event) => ontag(tag, event)}>{tag}</button></li>
+				<li>
+					<button
+						type="button"
+						onclick={(event) => ontag(tag, event)}
+						onkeydown={(event) => onTagKey(tag, event)}>{tag}</button
+					>
+				</li>
 			{/each}
 		</ul>
 	{/if}
+	<!-- A valued separator is the ARIA widget for resizing, which Svelte still treats as non-interactive. -->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
 		class="resize"
 		role="separator"
+		tabindex="0"
 		aria-orientation="vertical"
 		aria-label="Resize details"
+		aria-valuemin={DETAILS_MIN}
+		aria-valuemax={DETAILS_MAX}
+		aria-valuenow={detailsWidth}
+		style:right="{detailsWidth}px"
+		onkeydown={resizeDetails}
 	></div>
 	<div
 		class="edge-left"

@@ -1,8 +1,16 @@
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
-const packageJson = join(dirname(fileURLToPath(import.meta.url)), '../../../package.json');
+function appVersion() {
+	try {
+		const parsed = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
+			version?: string;
+		};
+		if (parsed.version) return parsed.version;
+	} catch {
+		/* a bundled server keeps a fallback when package.json is not beside the process */
+	}
+	return '0.0.1';
+}
 
-export const APP_VERSION = (JSON.parse(readFileSync(packageJson, 'utf8')) as { version: string })
-	.version;
+export const APP_VERSION = appVersion();
