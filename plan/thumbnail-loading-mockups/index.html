@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thumbnail loading — Panbooru</title>
+<style>
+  :root {
+    color-scheme: dark;
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #dddde3;
+    background: #0c0d10;
+    --cycle: 7.5s;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #0c0d10;
+  }
+
+  button {
+    font: inherit;
+    color: #b1b7c3;
+    cursor: pointer;
+  }
+
+  button:focus-visible {
+    outline: 2px solid #a4bbdf;
+    outline-offset: 3px;
+  }
+
+  .defs {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  main {
+    width: 601px;
+    max-width: calc(100% - 48px);
+    margin: 0 auto;
+    padding: 36px 0 72px;
+  }
+
+  .top {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 550;
+    letter-spacing: -0.4px;
+  }
+
+  .top p,
+  .note,
+  .reduce-note {
+    margin: 5px 0 0;
+    color: #727987;
+    max-width: 62ch;
+  }
+
+  .reduce-note { display: none; }
+
+  #freeze {
+    flex: none;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid #2b2f39;
+    border-radius: 10px;
+    background: #191c23;
+  }
+
+  #freeze:hover { background: #282e39; color: #fff; }
+
+  #freeze[aria-pressed="true"] {
+    background: #252a35;
+    color: #f1f1f7;
+  }
+
+  .group { margin-top: 36px; }
+
+  .grid {
+    display: flex;
+    gap: 7px;
+    width: max-content;
+  }
+
+  .tile {
+    position: relative;
+    width: 145px;
+    height: 190px;
+    flex: none;
+    overflow: hidden;
+    border: 0;
+    border-radius: 17px;
+    background: #191e25;
+  }
+
+  @supports (corner-shape: squircle) {
+    .tile {
+      corner-shape: squircle;
+      border-radius: 23px;
+    }
+  }
+
+  .preview,
+  .sharp {
+    position: absolute;
+  }
+
+  .preview svg,
+  .sharp svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .sharp {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    z-index: 2;
+  }
+
+  .wash .tile { background: var(--wash); }
+
+  .blur .preview,
+  .blur .sharp,
+  .wash .sharp,
+  .pulse .sharp,
+  .still .sharp,
+  .pulse .tile::before {
+    animation-duration: var(--cycle);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-fill-mode: both;
+    animation-delay: var(--d, 0s);
+  }
+
+  .blur .preview {
+    inset: -28%;
+    width: 156%;
+    height: 156%;
+    z-index: 1;
+    background: var(--sky);
+    animation-name: preview-blur;
+  }
+
+  .blur .sharp { animation-name: sharp-blur; }
+  .wash .sharp,
+  .pulse .sharp,
+  .still .sharp { animation-name: arrive; }
+
+  .pulse .tile::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: #465066;
+    z-index: 1;
+    animation-name: pulse;
+  }
+
+  .label h2 {
+    margin: 12px 0 2px;
+    font-size: 13px;
+    font-weight: 550;
+    letter-spacing: -0.2px;
+  }
+
+  .label p {
+    margin: 0;
+    color: #727987;
+    max-width: 68ch;
+  }
+
+  .foot {
+    margin: 42px 0 0;
+    color: #535965;
+    font-size: 11px;
+  }
+
+  html.frozen .preview,
+  html.frozen .sharp,
+  html.frozen .tile::before {
+    animation-play-state: paused;
+  }
+
+  @keyframes preview-blur {
+    0%, 34% { opacity: 1; filter: blur(20px); }
+    46% { opacity: 0; filter: blur(7px); }
+    82% { opacity: 0; filter: blur(0px); }
+    94%, 100% { opacity: 1; filter: blur(20px); }
+  }
+
+  @keyframes sharp-blur {
+    0%, 34% { opacity: 0; filter: blur(8px); }
+    48%, 82% { opacity: 1; filter: blur(0px); }
+    94%, 100% { opacity: 0; filter: blur(8px); }
+  }
+
+  @keyframes arrive {
+    0%, 34% { opacity: 0; }
+    48%, 82% { opacity: 1; }
+    94%, 100% { opacity: 0; }
+  }
+
+  @keyframes pulse {
+    0% { opacity: 0.5; }
+    12% { opacity: 1; }
+    24% { opacity: 0.38; }
+    34% { opacity: 0.82; }
+    48%, 88% { opacity: 0; }
+    100% { opacity: 0.5; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reduce-note { display: block; }
+    #freeze { display: none; }
+
+    .preview,
+    .pulse .tile::before {
+      opacity: 0 !important;
+      animation: none !important;
+    }
+
+    .sharp {
+      opacity: 1 !important;
+      filter: none !important;
+      animation: none !important;
+    }
+  }
+</style>
+</head>
+<body>
+<svg class="defs" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true">
+  <symbol id="a" viewBox="0 0 160 210">
+    <rect width="160" height="210" fill="#b7d4d0"/>
+    <circle cx="122" cy="44" r="14" fill="#e3cfac"/>
+    <polygon points="0,90 26,72 54,86 92,60 128,82 160,68 160,210 0,210" fill="#7f9e98"/>
+    <polygon points="0,116 32,98 74,118 112,96 160,112 160,210 0,210" fill="#668b85"/>
+    <polygon points="0,146 42,126 86,148 128,130 160,142 160,210 0,210" fill="#354e55"/>
+    <polygon points="0,172 38,158 96,176 160,160 160,210 0,210" fill="#202f3c"/>
+    <polygon points="62,150 54,172 60,172 52,194 74,194 66,172 72,172" fill="#1a2832"/>
+    <polygon points="96,142 86,168 93,168 84,196 110,196 101,168 108,168" fill="#1a2832"/>
+    <polygon points="124,156 118,174 123,174 117,192 135,192 129,174 134,174" fill="#1a2832"/>
+  </symbol>
+  <symbol id="a-low" viewBox="0 0 160 210">
+    <rect width="160" height="210" fill="#b7d4d0"/>
+    <circle cx="122" cy="44" r="16" fill="#e3cfac"/>
+    <polygon points="0,96 48,70 110,92 160,74 160,210 0,210" fill="#73968f"/>
+    <polygon points="0,140 70,118 160,136 160,210 0,210" fill="#354e55"/>
+    <polygon points="0,172 160,160 160,210 0,210" fill="#202f3c"/>
+  </symbol>
+  <symbol id="b" viewBox="0 0 160 210">
+    <rect width="160" height="210" fill="#cbbcc4"/>
+    <circle cx="46" cy="64" r="15" fill="#e3cfac"/>
+    <polygon points="0,102 36,84 78,104 124,82 160,98 160,210 0,210" fill="#6d6278"/>
+    <polygon points="0,128 48,112 102,132 160,114 160,210 0,210" fill="#4a4456"/>
+    <rect y="146" width="160" height="64" fill="#3a4c58"/>
+    <polygon points="18,158 52,164 86,156 124,166 148,158 142,174 112,168 78,176 46,168 24,174" fill="#5d7482" opacity=".7"/>
+    <polygon points="0,182 160,174 160,210 0,210" fill="#202f3c"/>
+  </symbol>
+  <symbol id="b-low" viewBox="0 0 160 210">
+    <rect width="160" height="210" fill="#cbbcc4"/>
+    <circle cx="46" cy="64" r="18" fill="#e3cfac"/>
+    <polygon points="0,108 80,86 160,104 160,210 0,210" fill="#6d6278"/>
+    <rect y="150" width="160" height="60" fill="#3a4c58"/>
+    <polygon points="0,184 160,176 160,210 0,210" fill="#202f3c"/>
+  </symbol>
+  <symbol id="c" viewBox="0 0 160 210">
+    <rect width="160" height="210" fill="#d5d8ce"/>
+    <circle cx="118" cy="42" r="13" fill="#e3cfac"/>
+    <polygon points="0,108 40,90 88,112 132,92 160,104 160,210 0,210" fill="#8fa08a"/>
+    <polygon points="0,136 56,120 116,140 160,124 160,210 0,210" fill="#667868"/>
+    <rect y="162" width="160" height="48" fill="#202f3c"/>
+    <polygon points="28,150 22,168 27,168 21,186 37,186 31,168 36,168" fill="#1a2832"/>
+    <polygon points="52,146 45,166 51,166 44,188 62,188 55,166 61,166" fill="#1a2832"/>
+    <polygon points="78,152 72,170 77,170 71,188 87,188 81,170 86,170" fill="#1a2832"/>
+    <polygon points="104,148 97,168 103,168 96,190 116,190 109,168 115,168" fill="#1a2832"/>
+    <polygon points="132,154 126,172 131,172 125,188 141,188 135,172 140,172" fill="#1a2832"/>
+  </symbol>
+  <symbol id="c-low" viewBox="0 0 160 210">
+    <rect width="160" height="210" fill="#d5d8ce"/>
+    <circle cx="118" cy="42" r="16" fill="#e3cfac"/>
+    <polygon points="0,112 70,92 160,108 160,210 0,210" fill="#8fa08a"/>
+    <polygon points="0,146 160,128 160,210 0,210" fill="#667868"/>
+    <rect y="168" width="160" height="42" fill="#202f3c"/>
+  </symbol>
+  <symbol id="d" viewBox="0 0 160 210">
+    <rect width="160" height="210" fill="#314456"/>
+    <circle cx="38" cy="46" r="11" fill="#e3cfac"/>
+    <circle cx="96" cy="28" r="1.3" fill="#d5dbe2"/>
+    <circle cx="122" cy="58" r="1.1" fill="#d5dbe2"/>
+    <circle cx="78" cy="70" r="1" fill="#d5dbe2"/>
+    <polygon points="96,96 118,88 160,100 160,128 108,116" fill="#3d5a68"/>
+    <rect y="124" width="160" height="86" fill="#243e4c"/>
+    <polygon points="0,168 28,150 52,166 84,142 112,164 160,136 160,210 0,210" fill="#202f3c"/>
+    <polygon points="118,128 132,122 160,134 160,156 126,146" fill="#1a2832"/>
+  </symbol>
+  <symbol id="d-low" viewBox="0 0 160 210">
+    <rect width="160" height="210" fill="#314456"/>
+    <circle cx="38" cy="46" r="14" fill="#e3cfac"/>
+    <rect y="126" width="160" height="84" fill="#243e4c"/>
+    <polygon points="0,170 160,146 160,210 0,210" fill="#202f3c"/>
+  </symbol>
+</svg>
+
+<main>
+  <header class="top">
+    <div>
+      <h1>Thumbnail loading</h1>
+      <p>Same tiles and the same four pictures, each row a different way they can arrive. The cycle is slowed so the motion can be compared: wait, resolve, hold, then repeat.</p>
+    </div>
+    <button type="button" id="freeze" aria-pressed="false">Freeze motion</button>
+  </header>
+  <p class="note">Freeze motion holds the current frame. Reduced motion skips the loop and stays on the loaded tiles.</p>
+  <p class="reduce-note">Motion is off because this system asks for reduced motion. The tiles stay on the loaded image.</p>
+
+  <section class="group blur" aria-labelledby="cap-blur">
+    <div class="grid" aria-hidden="true">
+      <div class="tile" style="--d:0s; --sky:#b7d4d0"><div class="preview"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#a-low" width="160" height="210" xlink:href="#a-low"/></svg></div><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#a" width="160" height="210" xlink:href="#a"/></svg></div></div>
+      <div class="tile" style="--d:-1.875s; --sky:#cbbcc4"><div class="preview"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#b-low" width="160" height="210" xlink:href="#b-low"/></svg></div><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#b" width="160" height="210" xlink:href="#b"/></svg></div></div>
+      <div class="tile" style="--d:-3.75s; --sky:#d5d8ce"><div class="preview"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#c-low" width="160" height="210" xlink:href="#c-low"/></svg></div><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#c" width="160" height="210" xlink:href="#c"/></svg></div></div>
+      <div class="tile" style="--d:-5.625s; --sky:#314456"><div class="preview"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#d-low" width="160" height="210" xlink:href="#d-low"/></svg></div><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#d" width="160" height="210" xlink:href="#d"/></svg></div></div>
+    </div>
+    <div class="label" id="cap-blur">
+      <h2>Blur-up</h2>
+      <p>A tiny low-resolution preview stays heavily blurred, then sharpens as the full tile fades in.</p>
+    </div>
+  </section>
+
+  <section class="group wash" aria-labelledby="cap-wash">
+    <div class="grid" aria-hidden="true">
+      <div class="tile" style="--d:0s; --wash:#3a4e4c"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#a" width="160" height="210" xlink:href="#a"/></svg></div></div>
+      <div class="tile" style="--d:-1.875s; --wash:#403c46"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#b" width="160" height="210" xlink:href="#b"/></svg></div></div>
+      <div class="tile" style="--d:-3.75s; --wash:#465046"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#c" width="160" height="210" xlink:href="#c"/></svg></div></div>
+      <div class="tile" style="--d:-5.625s; --wash:#1c2e38"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#d" width="160" height="210" xlink:href="#d"/></svg></div></div>
+    </div>
+    <div class="label" id="cap-wash">
+      <h2>Dim color wash</h2>
+      <p>A flat, darkened average of the picture fills the tile, then crossfades into the image.</p>
+    </div>
+  </section>
+
+  <section class="group pulse" aria-labelledby="cap-pulse">
+    <div class="grid" aria-hidden="true">
+      <div class="tile" style="--d:0s"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#a" width="160" height="210" xlink:href="#a"/></svg></div></div>
+      <div class="tile" style="--d:-1.875s"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#b" width="160" height="210" xlink:href="#b"/></svg></div></div>
+      <div class="tile" style="--d:-3.75s"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#c" width="160" height="210" xlink:href="#c"/></svg></div></div>
+      <div class="tile" style="--d:-5.625s"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#d" width="160" height="210" xlink:href="#d"/></svg></div></div>
+    </div>
+    <div class="label" id="cap-pulse">
+      <h2>Soft pulse</h2>
+      <p>The empty tile gently brightens and settles, then the image fades in.</p>
+    </div>
+  </section>
+
+  <section class="group still" aria-labelledby="cap-still">
+    <div class="grid" aria-hidden="true">
+      <div class="tile" style="--d:0s"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#a" width="160" height="210" xlink:href="#a"/></svg></div></div>
+      <div class="tile" style="--d:-1.875s"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#b" width="160" height="210" xlink:href="#b"/></svg></div></div>
+      <div class="tile" style="--d:-3.75s"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#c" width="160" height="210" xlink:href="#c"/></svg></div></div>
+      <div class="tile" style="--d:-5.625s"><div class="sharp"><svg viewBox="0 0 160 210" preserveAspectRatio="xMidYMid slice"><use href="#d" width="160" height="210" xlink:href="#d"/></svg></div></div>
+    </div>
+    <div class="label" id="cap-still">
+      <h2>Still fade</h2>
+      <p>The empty tile does not move. After the wait, the image eases in on its own.</p>
+    </div>
+  </section>
+
+  <p class="foot">Design study only. These tiles are not wired into the gallery.</p>
+</main>
+<script>
+  const freeze = document.querySelector("#freeze");
+  freeze.addEventListener("click", () => {
+    const on = document.documentElement.classList.toggle("frozen");
+    freeze.setAttribute("aria-pressed", String(on));
+    freeze.textContent = on ? "Play motion" : "Freeze motion";
+  });
+</script>
+</body>
+</html>
