@@ -11,6 +11,19 @@ export type ExplorationPost = {
 	mediaType?: string;
 };
 
+export type AppliedView = {
+	query: string;
+	rating: string[];
+	media: string[];
+	sort: string;
+};
+
+/** Item id plus offset inside that item. Pixel `scroll` is only a fallback. */
+export type ScrollAnchor = {
+	id: string;
+	offset: number;
+};
+
 export type ExplorationView = {
 	id: string;
 	query: string;
@@ -18,6 +31,9 @@ export type ExplorationView = {
 	postId: string | null;
 	mode: ViewMode;
 	scroll: number;
+	scrollAnchor: ScrollAnchor | null;
+	/** Filters from an opened saved search. Not a server view row. */
+	applied?: AppliedView;
 };
 
 export type NavigationState = {
@@ -29,7 +45,15 @@ export type NavigationState = {
 };
 
 function view(query = ''): ExplorationView {
-	return { id: crypto.randomUUID(), query, posts: [], postId: null, mode: 'gallery', scroll: 0 };
+	return {
+		id: crypto.randomUUID(),
+		query,
+		posts: [],
+		postId: null,
+		mode: 'gallery',
+		scroll: 0,
+		scrollAnchor: null
+	};
 }
 
 function active(state: NavigationState) {
@@ -45,7 +69,9 @@ function setQuery(state: NavigationState, query: string): NavigationState {
 	return {
 		...state,
 		views: state.views.map((item) =>
-			item.id === state.activeId ? { ...item, query, mode: 'gallery', postId: null } : item
+			item.id === state.activeId
+				? { ...item, query, mode: 'gallery', postId: null, scroll: 0, scrollAnchor: null }
+				: item
 		)
 	};
 }
@@ -61,8 +87,13 @@ export function newView(
 	options: { background?: boolean } = {}
 ): NavigationState {
 	const created = view(query);
+	if (options.background) {
+		const index = state.views.findIndex((item) => item.id === state.activeId);
+		const at = index < 0 ? 0 : index + 1;
+		const views = [...state.views.slice(0, at), created, ...state.views.slice(at)];
+		return { ...state, views };
+	}
 	const views = [created, ...state.views];
-	if (options.background) return { ...state, views };
 	return { ...remember(state), views, activeId: created.id };
 }
 
@@ -120,6 +151,30 @@ export function openPost(state: NavigationState, postId: string): NavigationStat
 			item.id === state.activeId ? { ...item, mode: 'viewer', postId } : item
 		)
 	};
+}
+
+/** Current workspace only. History stacks stay empty: a reload entry has no result snapshots. */
+export function restoreNavigation(saved: {
+	views: ExplorationView[];
+	activeId: string;
+}): NavigationState {
+	const views = saved.views.map((item) => ({
+		...item,
+		posts: item.posts.map((post) => ({ ...post })),
+		scrollAnchor: item.scrollAnchor ? { ...item.scrollAnchor } : null,
+		...(item.applied
+			? {
+					applied: {
+						...item.applied,
+						rating: [...item.applied.rating],
+						media: [...item.applied.media]
+					}
+				}
+			: {})
+	}));
+	if (!views.length) return createNavigation();
+	const activeId = views.some((item) => item.id === saved.activeId) ? saved.activeId : views[0]!.id;
+	return { views, activeId, past: [], future: [], side: 246 };
 }
 
 export function closeViewer(state: NavigationState): NavigationState {

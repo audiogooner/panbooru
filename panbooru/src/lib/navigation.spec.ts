@@ -26,7 +26,7 @@ describe('exploration navigation', () => {
 		expect(added.views.find((view) => view.id === added.activeId)?.query).toBe('forest');
 		const background = newView(added, 'water', { background: true });
 		expect(background.activeId).toBe(added.activeId);
-		expect(background.views.some((view) => view.query === 'water')).toBe(true);
+		expect(background.views.map((view) => view.query)).toEqual(['forest', 'water', '']);
 	});
 
 	it('closes a view and leaves one empty view when the last one closes', () => {
