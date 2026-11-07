@@ -56,10 +56,13 @@
 	import Sidebar from '#lib/Sidebar.svelte';
 	import ContextMenu from '#lib/ContextMenu.svelte';
 	import Notice from '#lib/Notice.svelte';
+	import { bindHistoryRehydrate } from '#lib/explore.svelte.ts';
 	import { editingText, matchesShortcut } from '#lib/shortcuts.ts';
 	import './layout.css';
 
 	let { data, children }: LayoutProps = $props();
+
+	bindHistoryRehydrate();
 
 	const shell = $state<ShellChrome>({
 		toolbar: null,

@@ -1,5 +1,5 @@
 import { browser } from '$app/env';
-import { goto } from '$app/navigation';
+import { afterNavigate, goto } from '$app/navigation';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import {
 	appendTag,
@@ -47,22 +47,47 @@ export const viewerCreated = $state({ ids: [] as string[] });
 let historyCursor = 0;
 let historyEpoch = 0;
 
+/** Shallow replace queued until the client router has started. */
+let pendingHistoryReplace: { url: string; cursor: number; epoch: number } | null = null;
+let historyRehydrateBound = false;
+
 if (browser) {
 	try {
-		const url = location.href;
 		historyCursor = rehydrateHistory(history.state, ({ cursor }) => {
-			const epoch = historyEpoch;
-			// The router finishes starting after this module initializes. A shallow replace
-			// before that throws, and it must not push a second entry for the reloaded page.
-			setTimeout(() => {
-				if (epoch !== historyEpoch || location.href !== url) return;
-				void goto(url, { state: { cursor }, shallow: true, replace: true });
-			}, 0);
+			// Module init runs before SvelteKit sets `started`. Calling goto here throws
+			// `navigation_before_start`; bindHistoryRehydrate flushes after the router is ready.
+			pendingHistoryReplace = { url: location.href, cursor, epoch: historyEpoch };
 		});
 	} catch {
 		historyCursor = 0;
 	}
 	persistWorkspace();
+}
+
+function flushPendingHistoryReplace() {
+	const pending = pendingHistoryReplace;
+	pendingHistoryReplace = null;
+	if (!pending || !browser) return;
+	if (pending.epoch !== historyEpoch || location.href !== pending.url) return;
+	void goto(pending.url, {
+		state: { cursor: pending.cursor },
+		shallow: true,
+		replace: true
+	});
+}
+
+/**
+ * Register once from a root layout/page during component init.
+ * Flushes any deferred history cursor replace after the client router is ready.
+ */
+export function bindHistoryRehydrate() {
+	if (!browser || historyRehydrateBound) return;
+	historyRehydrateBound = true;
+	afterNavigate(() => {
+		// `afterNavigate` for the initial `enter` runs just before Kit flips `started`.
+		// One microtask later, goto is safe and still does not push a second entry.
+		void Promise.resolve().then(flushPendingHistoryReplace);
+	});
 }
 
 function apply(next: NavigationState) {
