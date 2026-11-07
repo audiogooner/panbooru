@@ -69,12 +69,6 @@
 			chords: [chord('i')]
 		},
 		{
-			id: 'viewer-sidebar',
-			label: 'Viewer sidebar',
-			detail: 'Toggle the viewer left sidebar',
-			chords: [chord('b')]
-		},
-		{
 			id: 'favorite',
 			label: 'Favorite',
 			detail: 'Toggle favorite membership',

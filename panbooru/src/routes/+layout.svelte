@@ -56,7 +56,6 @@
 	import Sidebar from '#lib/Sidebar.svelte';
 	import ContextMenu from '#lib/ContextMenu.svelte';
 	import Notice from '#lib/Notice.svelte';
-	import { activeView, viewerChrome } from '#lib/explore.svelte.ts';
 	import { editingText, matchesShortcut } from '#lib/shortcuts.ts';
 	import './layout.css';
 
@@ -70,7 +69,6 @@
 	});
 	setShell(shell);
 
-	let viewing = $derived(activeView().mode === 'viewer');
 	let restorePreview = $state<string | null>(null);
 
 	function restoreSidebarWidth() {
@@ -205,7 +203,7 @@
 </svg>
 
 {#if data.authenticated}
-	<div class={{ app: true, viewing, 'left-open': viewerChrome.edge }} {@attach restoreSidebarWidth}>
+	<div class="app" {@attach restoreSidebarWidth}>
 		<Sidebar onlogout={logout} />
 		<div id="main" class={{ main: true, 'settings-page-mode': shell.settings }}>
 			<div

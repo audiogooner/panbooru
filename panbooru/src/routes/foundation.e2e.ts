@@ -83,8 +83,6 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 	await expect(page.getByRole('separator', { name: 'Resize details' })).toBeVisible();
 	const hiddenSidebar = await nav.boundingBox();
 	expect(hiddenSidebar?.x ?? 0).toBeLessThan(0);
-	await page.locator('.edge-left').hover();
-	await expect.poll(async () => (await nav.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
 
 	await page.keyboard.press('Escape');
 	await expect(page.locator('.gallery img').first()).toBeVisible();

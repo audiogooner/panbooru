@@ -170,7 +170,7 @@ h1 {
 	padding-top: 60px;
 }
 
-.app.viewing .sidebar {
+.app:has(.viewer) .sidebar {
 	position: fixed;
 	top: 0;
 	left: 0;
@@ -180,10 +180,6 @@ h1 {
 	transition: transform 0.2s;
 	background: #12151ce8 !important;
 	backdrop-filter: blur(22px);
-}
-
-.app.viewing.left-open .sidebar {
-	transform: translateX(0);
 }
 
 .artist {

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Icon from '#lib/Icon.svelte';
 	import AlbumPicker from '#lib/AlbumPicker.svelte';
-	import { viewerChrome } from '#lib/explore.svelte.ts';
 	import type { DragPost } from '#lib/selection.svelte.ts';
 	import { editingText, matchesShortcut } from '#lib/shortcuts.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
@@ -119,7 +118,6 @@
 	let chromeTimer = 0;
 	let zoomTimer = 0;
 	let alive = true;
-	let edgeFromShortcut = false;
 	let video: HTMLVideoElement | null = null;
 
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
@@ -292,20 +290,6 @@
 		detailsWidth = Math.min(DETAILS_MAX, Math.max(DETAILS_MIN, detailsWidth + delta));
 	}
 
-	function toggleEdge() {
-		viewerChrome.edge = !viewerChrome.edge;
-		edgeFromShortcut = viewerChrome.edge;
-	}
-
-	function dismissShortcutEdge(event: MouseEvent) {
-		if (!edgeFromShortcut || !viewerChrome.edge) return;
-		const target = event.target;
-		if (!(target instanceof Element)) return;
-		if (target.closest('.sidebar') || target.closest('.edge-left')) return;
-		viewerChrome.edge = false;
-		edgeFromShortcut = false;
-	}
-
 	function toggleAlbumPicker() {
 		albumPickerFor = albumPickerOpen ? null : post.id;
 		revealChrome();
@@ -315,7 +299,6 @@
 		const target = event.target;
 		if (!(target instanceof Element)) return;
 		if (!target.closest('.album-picker, [data-album-picker]')) albumPickerFor = null;
-		dismissShortcutEdge(event);
 	}
 
 	function startResize(event: PointerEvent) {
@@ -387,10 +370,6 @@
 		if (plainKey(event, 'i')) {
 			event.preventDefault();
 			toggleDetails();
-		}
-		if (plainKey(event, 'b')) {
-			event.preventDefault();
-			toggleEdge();
 		}
 		if (matchesShortcut(event, 'favorite')) {
 			event.preventDefault();
@@ -752,8 +731,7 @@
 		{
 			'panel-open': tagsOpen,
 			'image-over-info': manual,
-			'hide-controls': chromeHidden,
-			'edge-open': viewerChrome.edge
+			'hide-controls': chromeHidden
 		}
 	]}
 	style:--view-right={tagsOpen ? `${detailsWidth}px` : '0px'}
@@ -895,12 +873,6 @@
 	>
 		<Icon name="right" />
 	</button>
-	<div
-		class="edge-left"
-		role="region"
-		aria-label="Sidebar edge"
-		onpointerenter={() => (viewerChrome.edge = true)}
-	></div>
 	<button
 		class="back glass"
 		type="button"
@@ -1268,14 +1240,6 @@
 		opacity: 1;
 	}
 
-	.viewer.edge-open .previous,
-	.viewer.edge-open .previous:hover,
-	.viewer.edge-open .previous:focus-visible,
-	.viewer.edge-open .previous-zone:hover ~ .previous {
-		pointer-events: none;
-		opacity: 0;
-	}
-
 	.full {
 		display: block;
 		width: 100%;
@@ -1487,15 +1451,6 @@
 		left: -7px;
 		width: 8px;
 		cursor: ew-resize;
-	}
-
-	.edge-left {
-		position: absolute;
-		z-index: 80;
-		top: 0;
-		bottom: 0;
-		left: 0;
-		width: 28px;
 	}
 
 	.zoom-readout {

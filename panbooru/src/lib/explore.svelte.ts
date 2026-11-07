@@ -41,7 +41,6 @@ function initialNavigation(): NavigationState {
 }
 
 export const navigation = $state(initialNavigation());
-export const viewerChrome = $state({ edge: false });
 /** View ids opened from the current viewer. Cleared when that viewer closes. */
 export const viewerCreated = $state({ ids: [] as string[] });
 
@@ -161,12 +160,10 @@ export function queryFromTag(
 }
 
 export function showPost(postId: string) {
-	viewerChrome.edge = false;
 	apply(openPost(navigation, postId));
 }
 
 export function hideViewer() {
-	viewerChrome.edge = false;
 	viewerCreated.ids = [];
 	apply(closeViewer(navigation));
 }
