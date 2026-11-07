@@ -1,20 +1,173 @@
+/*
+ * Shared visual tokens. Later tracks must not edit this file.
+ * Preference keys (localStorage, UI only):
+ *   panbooru-sidebar-width -> --side (shell restores it; 180–420, default 246)
+ *   panbooru-album-height  -> --album-height (default 160; shell does not read it)
+ *   panbooru-row-height    -> --row (default 190; shell does not read it)
+ */
+:root {
+	color-scheme: dark;
+	font:
+		13px/1.45 -apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		sans-serif;
+	color: #dddde3;
+	background: #0c0d10;
+	--side: 246px;
+	--right: 310px;
+	--row: 190px;
+	--album-height: 160px;
+	--red: #eb8492;
+	--green: #99c8a3;
+	--blue: #8fb5e5;
+	--pink: #dcb0cf;
+	--yellow: #dbca91;
+}
+
+* {
+	box-sizing: border-box;
+}
+
 body {
 	margin: 0;
 	background: #0c0d10;
 	color: #dddde3;
-	font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	font:
+		13px/1.45 -apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		sans-serif;
+}
+
+body:has(.app) {
+	overflow: hidden;
+}
+
+button,
+input,
+select {
+	font: inherit;
+}
+
+button {
+	color: inherit;
+	cursor: pointer;
+}
+
+button:disabled {
+	cursor: default;
+	opacity: 0.35;
+}
+
+button,
+a,
+input,
+select {
+	outline-offset: 3px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+	outline: 2px solid #a4bbdf;
+}
+
+[hidden] {
+	display: none !important;
+}
+
+h1 {
+	margin: 0;
+	font-weight: 530;
+	font-size: 25px;
+	letter-spacing: -0.8px;
+}
+
+.icon-sprite {
+	position: absolute;
+	width: 0;
+	height: 0;
+	overflow: hidden;
 }
 
 .app {
 	display: flex;
 	height: 100vh;
+	height: 100dvh;
 	overflow: hidden;
 }
 
-.content {
+.app > .sidebar {
+	width: var(--side) !important;
+}
+
+.main {
+	position: relative;
+	display: flex;
 	flex: 1;
+	flex-direction: column;
 	min-width: 0;
+	min-height: 0;
+}
+
+.toolbar {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 10;
+	display: none;
+	width: 100%;
+	height: 60px;
+	align-items: center;
+	gap: 7px;
+	padding: 10px 26px;
+	isolation: isolate;
+	background: transparent;
+	transition: transform 0.18s;
+}
+
+.toolbar.filled {
+	display: flex;
+}
+
+.toolbar.scrolled-hidden {
+	transform: translateY(-100%);
+}
+
+.toolbar::before {
+	content: '';
+	position: absolute;
+	z-index: -1;
+	inset: 4px 18px;
+	border: 1px solid #30353e;
+	border-radius: 14px;
+	background: #22262e;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 0.2s ease;
+}
+
+.toolbar.overlay-search::before {
+	opacity: 1;
+}
+
+.scroll {
+	flex: 1;
+	min-height: 0;
 	overflow: auto;
+	scrollbar-color: #343841 transparent;
+	scrollbar-gutter: stable;
+	overflow-anchor: none;
+}
+
+.main:has(.toolbar.filled):not(.settings-page-mode) .scroll {
+	padding-top: 60px;
+}
+
+.main.settings-page-mode:has(.toolbar.filled) {
+	padding-top: 60px;
 }
 
 .app.viewing .sidebar {
@@ -25,10 +178,199 @@ body {
 	height: 100%;
 	transform: translateX(-100%);
 	transition: transform 0.2s;
+	background: #12151ce8 !important;
+	backdrop-filter: blur(22px);
 }
 
 .app.viewing.left-open .sidebar {
 	transform: translateX(0);
+}
+
+.artist {
+	color: var(--red);
+}
+
+.character {
+	color: var(--green);
+}
+
+.copyright {
+	color: var(--pink);
+}
+
+.metadata {
+	color: var(--yellow);
+}
+
+.general {
+	color: var(--blue);
+}
+
+.deprecated {
+	color: #888f99;
+}
+
+.glass {
+	border: 1px solid #ffffff12;
+	background: #14171b87;
+	box-shadow: 0 2px 12px #0002;
+	backdrop-filter: blur(20px);
+}
+
+.popup {
+	position: fixed;
+	z-index: 100;
+	min-width: 230px;
+	max-height: 65vh;
+	overflow: auto;
+	padding: 9px;
+	border: 1px solid #363c49;
+	border-radius: 13px;
+	background: #1c2028f7;
+	box-shadow: 0 16px 50px #0007;
+	backdrop-filter: blur(22px);
+}
+
+.popup h3 {
+	margin: 0 0 6px;
+	padding: 4px 8px;
+	color: #8f99aa;
+	font-size: 11px;
+	font-weight: 500;
+}
+
+.popup label,
+.popup .menu-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 10px;
+	border-radius: 7px;
+	background: none;
+	text-align: left;
+	cursor: pointer;
+}
+
+.popup label:hover,
+.popup .menu-item:hover {
+	background: #303848;
+}
+
+.popup input[type='checkbox'],
+.popup input[type='radio'] {
+	accent-color: #bcc9e4;
+}
+
+.popup input[type='text'] {
+	width: 100%;
+	margin-bottom: 6px;
+	padding: 9px 10px;
+	border: 1px solid #343d4d;
+	border-radius: 7px;
+	background: #10141d;
+	color: white;
+}
+
+.popup .muted {
+	padding: 7px 10px;
+	color: #8d98ac;
+	font-size: 10px;
+}
+
+.popup hr {
+	margin: 6px 0;
+	border: 0;
+	border-top: 1px solid #343c48;
+}
+
+.popup .danger {
+	color: #ef9ba7;
+}
+
+.popup .menu-item svg {
+	width: 16px;
+	height: 16px;
+}
+
+.popup button {
+	width: auto;
+	height: auto;
+	border: 0;
+}
+
+.suggestions {
+	min-width: 300px;
+	max-width: 520px;
+}
+
+.suggestion {
+	display: flex !important;
+	justify-content: space-between;
+}
+
+.suggestion.active {
+	background: #354259;
+}
+
+.suggestion small {
+	color: #8994a6;
+}
+
+dialog {
+	width: 480px;
+	max-width: 90vw;
+	padding: 26px;
+	border: 1px solid #3a4250;
+	border-radius: 18px;
+	background: #191e28;
+	color: #e4e8f0;
+	box-shadow: 0 24px 100px #0009;
+}
+
+dialog::backdrop {
+	background: #0009;
+	backdrop-filter: blur(5px);
+}
+
+dialog h2 {
+	margin: 0 0 18px;
+	font-size: 19px;
+	font-weight: 500;
+}
+
+dialog p {
+	color: #929daf;
+}
+
+dialog input[type='text'] {
+	width: 100%;
+	padding: 11px 12px;
+	border: 1px solid #3b4657;
+	border-radius: 9px;
+	background: #10151e;
+	color: #e9eef8;
+}
+
+dialog .dialog-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 24px;
+}
+
+dialog button {
+	width: auto;
+	height: auto;
+	padding: 9px 17px;
+	border: 0;
+	border-radius: 8px;
+	background: #2c3442;
+}
+
+dialog button.primary {
+	background: #c4d0e4;
+	color: #182032;
 }
 
 .empty-page {
@@ -89,4 +431,30 @@ ul {
 	gap: 12px;
 	padding: 0;
 	list-style: none;
+}
+
+@media (max-width: 850px) {
+	:root {
+		--side: 200px;
+		--right: 270px;
+	}
+
+	.toolbar {
+		padding-right: 15px;
+		padding-left: 15px;
+	}
+
+	.toolbar::before {
+		right: 7px;
+		left: 7px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition: none !important;
+		scroll-behavior: auto !important;
+	}
 }
