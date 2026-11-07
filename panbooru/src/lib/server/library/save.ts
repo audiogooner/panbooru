@@ -1,6 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { unlinkSync } from 'node:fs';
-import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import {
@@ -12,7 +10,8 @@ import {
 	postSnapshots,
 	savedItems
 } from '#lib/server/db/schema.ts';
-import { removeAlbumMembership, unfavorite, type SavedPost } from '#lib/server/library/retention.ts';
+import { recordHold } from '#lib/server/library/removal.ts';
+import { type SavedPost } from '#lib/server/library/retention.ts';
 
 export type PostMetadata = {
 	source: string;
@@ -175,15 +174,15 @@ export function createAlbum(db: AppDatabase, name: string, now = Date.now()) {
 }
 
 export function listAlbums(db: AppDatabase) {
-	return db.$client
-		.prepare('select id, name from albums order by created_at, id')
-		.all() as { id: string; name: string }[];
+	return db.$client.prepare('select id, name from albums order by created_at, id').all() as {
+		id: string;
+		name: string;
+	}[];
 }
 
 export function getAlbum(db: AppDatabase, id: string) {
 	return db.$client.prepare('select id, name from albums where id = ?').get(id) as
-		| { id: string; name: string }
-		| undefined;
+		{ id: string; name: string } | undefined;
 }
 
 export function listAlbumPosts(db: AppDatabase, albumId: string): FavoritePost[] {
@@ -200,13 +199,14 @@ export function listAlbumPosts(db: AppDatabase, albumId: string): FavoritePost[]
 	return rows.map(viewOf);
 }
 
-export function saveFavorite(db: AppDatabase, metadata: PostMetadata, now = Date.now()): SaveResult {
+export function saveFavorite(
+	db: AppDatabase,
+	metadata: PostMetadata,
+	now = Date.now()
+): SaveResult {
 	return db.transaction((tx) => {
 		const item = ensureItem(tx, metadata, now);
-		tx.insert(favorites)
-			.values({ itemId: item.id, favoritedAt: now })
-			.onConflictDoNothing()
-			.run();
+		tx.insert(favorites).values({ itemId: item.id, favoritedAt: now }).onConflictDoNothing().run();
 		ensureOriginalJob(tx, item.id, metadata.fileUrl);
 		return {
 			itemId: item.id,
@@ -237,7 +237,10 @@ export function saveAlbumMembership(
 	});
 }
 
-function membership(db: AppDatabase, itemId: string): (SavedPost & { mediaId: string | null }) | null {
+function membership(
+	db: AppDatabase,
+	itemId: string
+): (SavedPost & { mediaId: string | null }) | null {
 	const item = db.select().from(savedItems).where(eq(savedItems.id, itemId)).get();
 	if (!item) return null;
 	const favorite = db.select().from(favorites).where(eq(favorites.itemId, itemId)).get();
@@ -251,48 +254,22 @@ function membership(db: AppDatabase, itemId: string): (SavedPost & { mediaId: st
 	};
 }
 
-function unreferencedPath(db: AppDatabase, mediaId: string | null) {
-	if (!mediaId) return null;
-	const used = db.$client.prepare('select id from saved_items where media_id = ?').get(mediaId);
-	if (used) return null;
-	const media = db.$client
-		.prepare('select relative_path as relativePath from media_objects where id = ?')
-		.get(mediaId) as { relativePath: string | null } | undefined;
-	db.$client.prepare('delete from media_objects where id = ?').run(mediaId);
-	const path = media?.relativePath ?? '';
-	if (!path || path.startsWith('/') || path.includes('..')) return null;
-	return path;
-}
-
-function purgeItem(db: AppDatabase, itemId: string, mediaId: string | null) {
-	db.$client.prepare('delete from jobs where item_id = ?').run(itemId);
-	db.$client.prepare('delete from album_items where item_id = ?').run(itemId);
-	db.$client.prepare('delete from favorites where item_id = ?').run(itemId);
-	db.$client.prepare('delete from post_snapshots where item_id = ?').run(itemId);
-	db.$client.prepare('update saved_items set media_id = null where id = ?').run(itemId);
-	db.$client.prepare('delete from saved_items where id = ?').run(itemId);
-	return unreferencedPath(db, mediaId);
-}
-
-function unlinkOriginal(dataDir: string, relativePath: string | null) {
-	if (!relativePath) return;
-	try {
-		unlinkSync(join(dataDir, relativePath));
-	} catch {
-		/* the file is already gone */
-	}
-}
-
-export function removeFavoriteMembership(db: AppDatabase, dataDir: string, itemId: string) {
+export function removeFavoriteMembership(
+	db: AppDatabase,
+	dataDir: string,
+	itemId: string,
+	now = Date.now()
+) {
+	void dataDir;
 	const current = membership(db, itemId);
 	if (!current?.favorite) return false;
-	const decision = unfavorite(current);
-	const relativePath = db.$client.transaction(() => {
+	const row = db.$client
+		.prepare('select favorited_at as addedAt from favorites where item_id = ?')
+		.get(itemId) as { addedAt: number };
+	db.$client.transaction(() => {
 		db.$client.prepare('delete from favorites where item_id = ?').run(itemId);
-		if (decision.post) return null;
-		return purgeItem(db, itemId, current.mediaId);
+		recordHold(db, [{ itemId, kind: 'favorite', albumId: null, addedAt: row.addedAt }], now);
 	})();
-	unlinkOriginal(dataDir, relativePath);
 	return true;
 }
 
@@ -300,18 +277,20 @@ export function removeAlbumMembershipRow(
 	db: AppDatabase,
 	dataDir: string,
 	albumId: string,
-	itemId: string
+	itemId: string,
+	now = Date.now()
 ) {
+	void dataDir;
 	const current = membership(db, itemId);
 	if (!current?.albumIds.includes(albumId)) return false;
-	const decision = removeAlbumMembership(current, albumId);
-	const relativePath = db.$client.transaction(() => {
+	const row = db.$client
+		.prepare('select added_at as addedAt from album_items where album_id = ? and item_id = ?')
+		.get(albumId, itemId) as { addedAt: number };
+	db.$client.transaction(() => {
 		db.$client
 			.prepare('delete from album_items where album_id = ? and item_id = ?')
 			.run(albumId, itemId);
-		if (decision.post) return null;
-		return purgeItem(db, itemId, current.mediaId);
+		recordHold(db, [{ itemId, kind: 'album', albumId, addedAt: row.addedAt }], now);
 	})();
-	unlinkOriginal(dataDir, relativePath);
 	return true;
 }

@@ -73,6 +73,20 @@ export const albumItems = sqliteTable('album_items', {
 	addedAt: integer('added_at').notNull()
 });
 
+export const removalActions = sqliteTable('removal_actions', {
+	id: text('id').primaryKey(),
+	removedAt: integer('removed_at').notNull(),
+	expiresAt: integer('expires_at').notNull()
+});
+
+export const removalMemberships = sqliteTable('removal_memberships', {
+	actionId: text('action_id').notNull(),
+	itemId: text('item_id').notNull(),
+	kind: text('kind').notNull(),
+	albumId: text('album_id'),
+	addedAt: integer('added_at').notNull()
+});
+
 export const jobs = sqliteTable('jobs', {
 	id: text('id').primaryKey(),
 	kind: text('kind').notNull(),

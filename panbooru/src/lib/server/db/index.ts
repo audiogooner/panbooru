@@ -94,6 +94,23 @@ create table jobs (
 );
 `;
 
+const removalMigration = `
+create table removal_actions (
+	id text primary key,
+	removed_at integer not null,
+	expires_at integer not null
+);
+create table removal_memberships (
+	action_id text not null references removal_actions(id) on delete cascade,
+	item_id text not null,
+	kind text not null,
+	album_id text,
+	added_at integer not null
+);
+create unique index removal_memberships_identity
+	on removal_memberships (action_id, item_id, kind, ifnull(album_id, ''));
+`;
+
 export function openDatabase(dataDir: string) {
 	const directory = join(dataDir, 'db');
 	mkdirSync(directory, { recursive: true });
@@ -110,10 +127,17 @@ export function openDatabase(dataDir: string) {
 		sqlite.transaction(() => {
 			sqlite.exec(libraryMigration);
 			sqlite
-				.prepare(
-					'insert into schema_migrations (version, applied_at, checksum) values (2, ?, ?)'
-				)
+				.prepare('insert into schema_migrations (version, applied_at, checksum) values (2, ?, ?)')
 				.run(Date.now(), 'library-v2');
+		})();
+	}
+	const removal = sqlite.prepare('select version from schema_migrations where version = 3').get();
+	if (!removal) {
+		sqlite.transaction(() => {
+			sqlite.exec(removalMigration);
+			sqlite
+				.prepare('insert into schema_migrations (version, applied_at, checksum) values (3, ?, ?)')
+				.run(Date.now(), 'removal-v3');
 		})();
 	}
 	return drizzle(sqlite, { schema });
