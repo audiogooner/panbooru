@@ -34,6 +34,11 @@ export type RunningApp = {
 	close: () => Promise<void>;
 };
 
+export function loadDotEnv(path = '.env') {
+	if (!existsSync(path)) return;
+	process.loadEnvFile(path);
+}
+
 export function readConfig(options: StartAppOptions = {}) {
 	const dataDir = options.dataDir ?? process.env.PANBOORU_DATA_DIR;
 	if (!dataDir) {
@@ -110,6 +115,7 @@ let preparing: Promise<void> | undefined;
 
 export function prepareProcessServices() {
 	if (!preparing) {
+		loadDotEnv();
 		preparing = (async () => {
 			const services = createServices();
 			ensureBootstrap(services);
