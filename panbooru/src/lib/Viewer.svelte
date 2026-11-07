@@ -120,9 +120,11 @@
 	let clickTimer = 0;
 	let chromeTimer = 0;
 	let zoomTimer = 0;
-	let previewClearRaf = 0;
+	let revealTimer = 0;
+	let settledBackdrop = $state('');
 	let alive = true;
 	let video: HTMLVideoElement | null = null;
+	const REVEAL_MS = 360;
 
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
 	const manual = $derived(manualZoom !== null && manualId === post.id);
@@ -445,6 +447,20 @@
 		});
 	}
 
+	function revealDelay() {
+		return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : REVEAL_MS;
+	}
+
+	function scheduleReveal(id: string, backdrop: string) {
+		window.clearTimeout(revealTimer);
+		revealTimer = window.setTimeout(() => {
+			revealTimer = 0;
+			if (!alive || post.id !== id) return;
+			previewCleared = id;
+			settledBackdrop = backdrop;
+		}, revealDelay());
+	}
+
 	function markLoaded(event: Event) {
 		const image = event.currentTarget;
 		if (!(image instanceof HTMLImageElement) || image.dataset.post !== post.id) return;
@@ -466,14 +482,7 @@
 					scale: zoom.scale
 				};
 			}
-			cancelAnimationFrame(previewClearRaf);
-			previewClearRaf = requestAnimationFrame(() => {
-				previewClearRaf = requestAnimationFrame(() => {
-					previewClearRaf = 0;
-					if (!alive || post.id !== id) return;
-					previewCleared = id;
-				});
-			});
+			scheduleReveal(id, backdrop);
 		})();
 	}
 
@@ -529,6 +538,7 @@
 		duration = node.duration || 0;
 		loadedId = post.id;
 		held = null;
+		scheduleReveal(post.id, blurBackdrop);
 		const saved = savedPosition(post.id);
 		if (saved !== undefined && saved > 0) {
 			node.currentTime = Math.min(saved, Number.isFinite(node.duration) ? node.duration : saved);
@@ -656,8 +666,8 @@
 			alive = false;
 			window.clearTimeout(chromeTimer);
 			window.clearTimeout(zoomTimer);
-			cancelAnimationFrame(previewClearRaf);
-			previewClearRaf = 0;
+			window.clearTimeout(revealTimer);
+			revealTimer = 0;
 			if (root === node) root = null;
 		};
 	}
@@ -758,7 +768,15 @@
 	bind:clientHeight={viewportHeight}
 	{onwheel}
 >
-	<img class="backdrop" src={ghost?.backdrop ?? blurBackdrop} alt="" aria-hidden="true" />
+	{#if settledBackdrop}
+		<img class="backdrop settled" src={settledBackdrop} alt="" aria-hidden="true" />
+	{/if}
+	<img
+		class={['backdrop', 'incoming', { ready: !loading }]}
+		src={blurBackdrop}
+		alt=""
+		aria-hidden="true"
+	/>
 	{#if playableVideo}
 		{#key post.id}
 			<div class="player">
@@ -779,8 +797,10 @@
 					ontimeupdate={trackVideo}
 					onerror={(event) => {
 						const node = event.currentTarget;
-						if (node instanceof HTMLVideoElement && node.dataset.post === post.id)
+						if (node instanceof HTMLVideoElement && node.dataset.post === post.id) {
 							loadedId = post.id;
+							scheduleReveal(post.id, blurBackdrop);
+						}
 					}}
 				>
 					<track kind="captions" label="Captions" srclang="en" src="data:text/vtt,WEBVTT" />
@@ -1089,9 +1109,27 @@
 		pointer-events: none;
 	}
 
+	.backdrop.settled {
+		z-index: 0;
+	}
+
+	.backdrop.incoming {
+		z-index: 1;
+		opacity: 0;
+		transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.backdrop.incoming:not(.ready) {
+		transition: none;
+	}
+
+	.backdrop.incoming.ready {
+		opacity: 1;
+	}
+
 	.stage {
 		position: absolute;
-		z-index: 1;
+		z-index: 2;
 		transform-origin: 0 0;
 		touch-action: none;
 		user-select: none;
@@ -1119,6 +1157,7 @@
 		inset: 0;
 		z-index: 1;
 		opacity: 0;
+		transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.stage.ready .foreground {
@@ -1256,6 +1295,11 @@
 		.departure.leaving {
 			animation: none;
 			opacity: 0;
+		}
+
+		.stage .foreground,
+		.backdrop.incoming {
+			transition: none !important;
 		}
 	}
 
