@@ -20,6 +20,7 @@
 	let shown = $state<{ src: string; instant: boolean } | null>(null);
 	const ready = $derived(shown?.src === src);
 	const instant = $derived(Boolean(ready && shown?.instant));
+	let alive = false;
 
 	function background(url: string) {
 		return `url("${url.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}")`;
@@ -33,6 +34,7 @@
 	}
 
 	function reveal(img: HTMLImageElement, warm: boolean) {
+		if (!alive) return;
 		if (img.naturalWidth === 0) return;
 		if (shown?.src === src && shown.instant) return;
 		const skip = warm || fromCache(img);
@@ -41,11 +43,16 @@
 	}
 
 	function watch(img: HTMLImageElement) {
+		alive = true;
 		void src;
 		if (img.complete && img.naturalWidth > 0) reveal(img, true);
+		return () => {
+			alive = false;
+		};
 	}
 
 	function onLoad(event: Event) {
+		if (!alive) return;
 		const img = event.currentTarget;
 		if (!(img instanceof HTMLImageElement)) return;
 		reveal(img, false);
