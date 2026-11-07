@@ -7,6 +7,8 @@ export type ExplorationPost = {
 	tags: string[];
 	mediaRef: string;
 	rating?: string;
+	score?: number;
+	fileSize?: number;
 	kind?: 'image' | 'video';
 	mediaType?: string;
 };

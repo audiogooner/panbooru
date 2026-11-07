@@ -118,12 +118,16 @@ export function normalizePosts(json: unknown, media: Map<string, MediaTarget>) {
 		const tags = String(post.tags ?? '')
 			.split(/\s+/)
 			.filter(Boolean);
+		const score = Number(post.score);
+		const fileSize = Number(post.file_size);
 		return {
 			id: String(post.id ?? ''),
 			tags,
 			width: Number(post.width ?? 0),
 			height: Number(post.height ?? 0),
 			rating: String(post.rating ?? ''),
+			...(Number.isFinite(score) ? { score } : {}),
+			...(Number.isFinite(fileSize) && fileSize >= 0 ? { fileSize } : {}),
 			mediaRef,
 			kind: isVideoFile(fileUrl) ? 'video' : 'image',
 			mediaType: mediaType(fileUrl)

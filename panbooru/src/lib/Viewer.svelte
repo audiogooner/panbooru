@@ -117,6 +117,7 @@
 	} | null>(null);
 	let tagMeta = $state<Record<string, TagMeta>>({});
 	let tagMetaPost = $state('');
+	let probedSize = $state<{ id: string; bytes: number } | null>(null);
 	let clickTimer = 0;
 	let chromeTimer = 0;
 	let zoomTimer = 0;
@@ -183,6 +184,16 @@
 	);
 	const ratingLabel = $derived(
 		post.rating ? (ratingLabels[post.rating.toLowerCase()] ?? post.rating) : '—'
+	);
+	const scoreLabel = $derived(
+		typeof post.score === 'number' && Number.isFinite(post.score) ? String(post.score) : '—'
+	);
+	const fileSizeLabel = $derived(
+		typeof post.fileSize === 'number' && Number.isFinite(post.fileSize)
+			? formatBytes(post.fileSize)
+			: probedSize?.id === post.id
+				? formatBytes(probedSize.bytes)
+				: '—'
 	);
 	const zoomPercent = $derived(`${Math.round(zoom.scale * 100)}%`);
 	const albumPickerOpen = $derived(albumPickerFor === post.id);
@@ -562,6 +573,13 @@
 		return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 	}
 
+	function formatBytes(bytes: number): string {
+		if (bytes < 1024) return `${Math.round(bytes)} B`;
+		if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+		if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+		return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+	}
+
 	function videoElement(node: HTMLVideoElement) {
 		video = node;
 		if (node.readyState >= 1) prepareNode(node);
@@ -799,6 +817,28 @@
 		void lookupTags(id, names, controller.signal);
 		return () => controller.abort();
 	}
+
+	$effect(() => {
+		if (!tagsOpen) return;
+		const id = post.id;
+		const known = post.fileSize;
+		if (typeof known === 'number' && Number.isFinite(known)) return;
+		const url = mediaBase;
+		const controller = new AbortController();
+		void (async () => {
+			try {
+				const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+				if (!response.ok || controller.signal.aborted || post.id !== id) return;
+				const header = response.headers.get('content-length');
+				const bytes = header == null ? NaN : Number(header);
+				if (!Number.isFinite(bytes) || bytes < 0) return;
+				probedSize = { id, bytes };
+			} catch {
+				/* aborted or unreachable */
+			}
+		})();
+		return () => controller.abort();
+	});
 </script>
 
 <svelte:window
@@ -1083,7 +1123,7 @@
 							</div>
 							<div>
 								<span>File size</span>
-								<strong>—</strong>
+								<strong>{fileSizeLabel}</strong>
 							</div>
 							<div>
 								<span>Rating</span>
@@ -1091,7 +1131,7 @@
 							</div>
 							<div>
 								<span>Score</span>
-								<strong>—</strong>
+								<strong>{scoreLabel}</strong>
 							</div>
 							<div>
 								<span>Original post</span>

@@ -269,6 +269,8 @@ function postFrom(value: unknown): ExplorationPost | null {
 	if (typeof value.width !== 'number' || typeof value.height !== 'number') return null;
 	if (!Array.isArray(value.tags) || value.tags.some((tag) => typeof tag !== 'string')) return null;
 	const kind = value.kind === 'image' || value.kind === 'video' ? value.kind : undefined;
+	const score = value.score;
+	const fileSize = value.fileSize;
 	return {
 		id: value.id,
 		width: value.width,
@@ -276,6 +278,10 @@ function postFrom(value: unknown): ExplorationPost | null {
 		tags: [...value.tags],
 		mediaRef: value.mediaRef,
 		...(typeof value.rating === 'string' ? { rating: value.rating } : {}),
+		...(typeof score === 'number' && Number.isFinite(score) ? { score } : {}),
+		...(typeof fileSize === 'number' && Number.isFinite(fileSize) && fileSize >= 0
+			? { fileSize }
+			: {}),
 		...(kind ? { kind } : {}),
 		...(typeof value.mediaType === 'string' ? { mediaType: value.mediaType } : {})
 	};
