@@ -159,6 +159,40 @@ create table saved_searches (
 create unique index saved_searches_applied on saved_searches (query, rating, media, sort);
 `;
 
+const collectionImportMigration = `
+create table collection_imports (
+	id text primary key,
+	operation text not null check (operation in ('add', 'remove')),
+	destination_kind text not null check (destination_kind in ('favorite', 'album')),
+	destination_album_id text,
+	source_kind text not null check (source_kind in ('gelbooru', 'favorites', 'album', 'saved-search')),
+	source_album_id text,
+	query text not null,
+	rating text not null,
+	media text not null,
+	sort text not null,
+	random_seed integer not null,
+	excluded_ids text not null,
+	page_cursor integer not null,
+	added_count integer not null,
+	total integer,
+	state text not null check (state in ('queued', 'leased', 'paused', 'cancelled', 'succeeded', 'failed')),
+	error text,
+	lease_until integer,
+	created_at integer not null,
+	updated_at integer not null,
+	check (
+		(destination_kind = 'favorite' and destination_album_id is null)
+		or (destination_kind = 'album' and destination_album_id is not null)
+	),
+	check (
+		(source_kind = 'album' and source_album_id is not null)
+		or (source_kind != 'album' and source_album_id is null)
+	)
+);
+create index collection_imports_state on collection_imports (state, created_at, id);
+`;
+
 const coverAutoMigration = `
 alter table albums add column cover_auto_stopped integer not null default 0;
 alter table saved_searches add column cover_auto_stopped integer not null default 0;
@@ -232,6 +266,17 @@ export function openDatabase(dataDir: string) {
 			sqlite
 				.prepare('insert into schema_migrations (version, applied_at, checksum) values (6, ?, ?)')
 				.run(Date.now(), 'collections-v6');
+		})();
+	}
+	const collectionImports = sqlite
+		.prepare('select version from schema_migrations where version = 7')
+		.get();
+	if (!collectionImports) {
+		sqlite.transaction(() => {
+			sqlite.exec(collectionImportMigration);
+			sqlite
+				.prepare('insert into schema_migrations (version, applied_at, checksum) values (7, ?, ?)')
+				.run(Date.now(), 'collection-imports-v7');
 		})();
 	}
 	const coverAuto = sqlite.prepare('select version from schema_migrations where version = 8').get();

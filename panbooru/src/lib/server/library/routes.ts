@@ -36,7 +36,25 @@ import {
 import { inMaintenance } from '#lib/server/library/maintenance.ts';
 import { undoRemoval } from '#lib/server/library/removal.ts';
 import { suggestAlbum, suggestFavorites } from '#lib/server/library/search.ts';
-import { runServiceOriginalPass } from '#lib/server/library/worker.ts';
+import {
+	cancelCollectionImport,
+	createCollectionImport,
+	dismissCollectionImport,
+	listCollectionImports,
+	pauseAllCollectionImports,
+	pauseCollectionImport,
+	readCollectionImport,
+	resumeCollectionImport,
+	retryCollectionImport
+} from '#lib/server/library/collection-import.ts';
+import {
+	cancelOriginalJob,
+	dismissOriginalJob,
+	kickCollectionImports,
+	listOriginalJobs,
+	retryOriginalJob,
+	runServiceOriginalPass
+} from '#lib/server/library/worker.ts';
 
 type ReadyOriginal = {
 	relativePath: string;
@@ -182,6 +200,72 @@ export async function handleLibrary(
 			)
 			.all(itemId || remoteId) as { albumId: string; itemId: string }[];
 		return jsonData({ memberships: rows });
+	}
+
+	if (request.method === 'GET' && url.pathname === '/api/library/jobs') {
+		return jsonData({
+			jobs: listOriginalJobs(services.db),
+			imports: listCollectionImports(services.db)
+		});
+	}
+
+	if (request.method === 'POST' && url.pathname === '/api/library/imports') {
+		const created = createCollectionImport(services.db, await readJson(request), services.now());
+		if (!created.ok) {
+			return jsonError(
+				created.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST',
+				created.message,
+				created.status
+			);
+		}
+		kickCollectionImports(services);
+		return jsonData({ import: created.import });
+	}
+
+	if (request.method === 'POST' && url.pathname === '/api/library/imports/pause-all') {
+		pauseAllCollectionImports(services.db, services.now());
+		return jsonData({ imports: listCollectionImports(services.db) });
+	}
+
+	const importAction = url.pathname.match(
+		/^\/api\/library\/imports\/([^/]+)\/(pause|resume|cancel|retry|dismiss)$/
+	);
+	if (importAction && request.method === 'POST') {
+		const id = decodeURIComponent(importAction[1] ?? '');
+		const action = importAction[2];
+		const changed =
+			action === 'pause'
+				? pauseCollectionImport(services.db, id, services.now())
+				: action === 'resume'
+					? resumeCollectionImport(services.db, id, services.now())
+					: action === 'cancel'
+						? cancelCollectionImport(services.db, id, services.now())
+						: action === 'retry'
+							? retryCollectionImport(services.db, id, services.now())
+							: dismissCollectionImport(services.db, id);
+		if (!changed) return jsonError('NOT_FOUND', 'Import was not found', 404);
+		if (action === 'resume' || action === 'retry') kickCollectionImports(services);
+		if (action === 'dismiss') return jsonData({ removed: true });
+		return jsonData({ import: readCollectionImport(services.db, id) });
+	}
+
+	const jobAction = url.pathname.match(/^\/api\/library\/jobs\/([^/]+)\/(retry|dismiss|cancel)$/);
+	if (jobAction && request.method === 'POST') {
+		const id = decodeURIComponent(jobAction[1] ?? '');
+		const action = jobAction[2];
+		const changed =
+			action === 'retry'
+				? retryOriginalJob(services.db, id)
+				: action === 'cancel'
+					? cancelOriginalJob(services.db, id)
+					: dismissOriginalJob(services.db, id);
+		if (!changed) return jsonError('NOT_FOUND', 'Download job was not found', 404);
+		if (action === 'retry') {
+			void runServiceOriginalPass(services).catch((error: unknown) => {
+				services.log(error instanceof Error ? error.message : 'original worker failed');
+			});
+		}
+		return jsonData({ jobs: listOriginalJobs(services.db) });
 	}
 
 	if (request.method === 'POST' && url.pathname === '/api/library/albums') {

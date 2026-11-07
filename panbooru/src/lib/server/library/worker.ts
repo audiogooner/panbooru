@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppDatabase } from '#lib/server/db/index.ts';
+import {
+	runCollectionImportPass,
+	type CollectionImportContext
+} from '#lib/server/library/collection-import.ts';
 import { inMaintenance } from '#lib/server/library/maintenance.ts';
 import { promoteOriginal } from '#lib/server/library/original.ts';
 
@@ -162,16 +166,118 @@ export async function runOriginalPass(options: OriginalPassOptions) {
 	}
 }
 
-export function runServiceOriginalPass(services: {
-	db: AppDatabase;
-	dataDir: string;
-	now: () => number;
-	fetchUpstream: (url: URL) => Promise<Response>;
-}) {
-	return runOriginalPass({
+export type OriginalJobRow = {
+	id: string;
+	state: string;
+	progress: number;
+	error: string | null;
+	itemId: string;
+};
+
+export function listOriginalJobs(db: AppDatabase) {
+	return db.$client
+		.prepare(
+			`select id, state, progress, error, item_id as itemId
+			 from jobs
+			 where kind = 'original' and state != 'succeeded'
+			 order by id`
+		)
+		.all() as OriginalJobRow[];
+}
+
+export function cancelOriginalJob(db: AppDatabase, id: string) {
+	const result = db.$client
+		.prepare(
+			`update jobs
+			 set state = 'cancelled', lease_until = null
+			 where id = ? and kind = 'original' and state in ('queued', 'retry')`
+		)
+		.run(id);
+	return result.changes > 0;
+}
+
+export function retryOriginalJob(db: AppDatabase, id: string) {
+	const result = db.$client
+		.prepare(
+			`update jobs
+			 set state = 'queued', error = null, next_attempt_at = null, lease_until = null
+			 where id = ? and kind = 'original' and state = 'failed'`
+		)
+		.run(id);
+	return result.changes > 0;
+}
+
+export function dismissOriginalJob(db: AppDatabase, id: string) {
+	const result = db.$client
+		.prepare(
+			`delete from jobs
+			 where id = ? and kind = 'original' and state in ('failed', 'cancelled')`
+		)
+		.run(id);
+	return result.changes > 0;
+}
+
+export function runServiceOriginalPass(services: CollectionImportContext) {
+	const pending = runOriginalPass({
 		db: services.db,
 		dataDir: services.dataDir,
 		now: services.now(),
 		fetchFile: (url) => services.fetchUpstream(new URL(url))
 	});
+	void pending.then(() => {
+		kickCollectionImports(services);
+	});
+	return pending;
+}
+
+let pumpingImports = false;
+let importsWaiting = false;
+
+function yieldImportTick() {
+	return new Promise<void>((resolve) => {
+		setTimeout(resolve, 0);
+	});
+}
+
+/** One collection-import page per turn. Original downloads keep their own pass. */
+export function kickCollectionImports(services: CollectionImportContext) {
+	importsWaiting = true;
+	if (pumpingImports) return;
+	pumpingImports = true;
+	void drainCollectionImports(services);
+}
+
+async function drainCollectionImports(services: CollectionImportContext) {
+	try {
+		while (importsWaiting) {
+			importsWaiting = false;
+			if (!acceptingClaims || inMaintenance(services.dataDir)) return;
+			let more = false;
+			try {
+				more = await runCollectionImportPass(services);
+			} catch (error) {
+				(services.log ?? (() => {}))(
+					error instanceof Error ? error.message : 'collection import failed'
+				);
+				return;
+			}
+			void runOriginalPass({
+				db: services.db,
+				dataDir: services.dataDir,
+				now: services.now(),
+				fetchFile: (url) => services.fetchUpstream(new URL(url))
+			}).catch((error: unknown) => {
+				(services.log ?? (() => {}))(
+					error instanceof Error ? error.message : 'original worker failed'
+				);
+			});
+			if (more) importsWaiting = true;
+			if (importsWaiting) await yieldImportTick();
+		}
+	} finally {
+		pumpingImports = false;
+		if (importsWaiting && acceptingClaims && !inMaintenance(services.dataDir)) {
+			kickCollectionImports(services);
+		}
+	}
 }

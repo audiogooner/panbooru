@@ -159,3 +159,27 @@ export const jobs = sqliteTable('jobs', {
 	fileUrl: text('file_url').notNull(),
 	expectedHash: text('expected_hash')
 });
+
+/** One durable collection import. Original downloads stay in `jobs`. */
+export const collectionImports = sqliteTable('collection_imports', {
+	id: text('id').primaryKey(),
+	operation: text('operation').notNull(),
+	destinationKind: text('destination_kind').notNull(),
+	destinationAlbumId: text('destination_album_id'),
+	sourceKind: text('source_kind').notNull(),
+	sourceAlbumId: text('source_album_id'),
+	query: text('query').notNull(),
+	rating: text('rating').notNull(),
+	media: text('media').notNull(),
+	sort: text('sort').notNull(),
+	randomSeed: integer('random_seed').notNull(),
+	excludedIds: text('excluded_ids').notNull(),
+	pageCursor: integer('page_cursor').notNull(),
+	addedCount: integer('added_count').notNull(),
+	total: integer('total'),
+	state: text('state').notNull(),
+	error: text('error'),
+	leaseUntil: integer('lease_until'),
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
