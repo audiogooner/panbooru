@@ -107,6 +107,13 @@ describe('collection schema and routes', () => {
 				(3, 1, 'removal-v3'),
 				(4, 1, 'source-tags-v4'),
 				(5, 1, 'derivatives-v5');
+			create table source_tags (
+				source text not null,
+				name text not null,
+				category text not null,
+				fetched_at integer not null,
+				primary key (source, name)
+			);
 			create table albums (
 				id text primary key,
 				name text not null,

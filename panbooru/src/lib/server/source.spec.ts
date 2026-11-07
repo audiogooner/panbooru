@@ -172,15 +172,36 @@ describe('gelbooru source and media', () => {
 		});
 		expect(tags.status).toBe(200);
 		const tagBody = (await tags.json()) as {
-			data: { tags: Array<{ name: string; category: string }> };
+			data: { tags: Array<{ name: string; category: string; count: number }> };
 		};
-		expect(tagBody.data.tags[0]).toMatchObject({ name: 'sunset', category: 'general' });
+		expect(tagBody.data.tags[0]).toMatchObject({ name: 'sunset', category: 'general', count: 12 });
 		expect(
 			fixture.requests.some(
 				(entry) =>
 					entry.includes('s=tag') && entry.includes('q=index') && entry.includes('names=sunset')
 			)
 		).toBe(true);
+		const upstreamTagCalls = () =>
+			fixture.requests.filter(
+				(entry) =>
+					entry.includes('s=tag') && entry.includes('q=index') && entry.includes('names=')
+			).length;
+		const tagCallsAfterMiss = upstreamTagCalls();
+		const cached = await app.fetch('/api/source/gelbooru/tags', {
+			method: 'POST',
+			headers: { origin: app.origin, cookie, 'content-type': 'application/json' },
+			body: JSON.stringify({ names: ['sunset'] })
+		});
+		expect(cached.status).toBe(200);
+		const cachedBody = (await cached.json()) as {
+			data: { tags: Array<{ name: string; category: string; count: number }> };
+		};
+		expect(cachedBody.data.tags[0]).toMatchObject({
+			name: 'sunset',
+			category: 'general',
+			count: 12
+		});
+		expect(upstreamTagCalls()).toBe(tagCallsAfterMiss);
 
 		const suggestions = await app.fetch('/api/source/gelbooru/autocomplete', {
 			method: 'POST',

@@ -124,6 +124,7 @@ export const sourceTags = sqliteTable(
 		source: text('source').notNull(),
 		name: text('name').notNull(),
 		category: text('category').notNull(),
+		count: integer('count').notNull().default(0),
 		fetchedAt: integer('fetched_at').notNull()
 	},
 	(table) => [primaryKey({ columns: [table.source, table.name] })]

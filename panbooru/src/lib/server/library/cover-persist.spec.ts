@@ -60,7 +60,7 @@ describe('automatic cover persistence', () => {
 	}
 
 	it('adds cover_auto_stopped when opening a version 7 database', async () => {
-		expect(SCHEMA_VERSION).toBe(8);
+		expect(SCHEMA_VERSION).toBe(9);
 		const dataDir = await mkdtemp(join(tmpdir(), 'panbooru-cover-v7-'));
 		directories.push(dataDir);
 		const directory = join(dataDir, 'db');
@@ -80,6 +80,13 @@ describe('automatic cover persistence', () => {
 				(5, 1, 'derivatives-v5'),
 				(6, 1, 'collections-v6'),
 				(7, 1, 'collection-imports-v7');
+			create table source_tags (
+				source text not null,
+				name text not null,
+				category text not null,
+				fetched_at integer not null,
+				primary key (source, name)
+			);
 			create table albums (
 				id text primary key,
 				name text not null,

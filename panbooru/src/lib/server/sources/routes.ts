@@ -2,6 +2,7 @@ import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { serveMedia } from '#lib/server/media/serve.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { compileRatingTags } from '#lib/server/library/rating-tags.ts';
+import { lookupSourceTags } from '#lib/server/library/tags.ts';
 import {
 	gelbooruCredentialState,
 	gelbooruJson,
@@ -88,14 +89,9 @@ export async function handleSource(
 		const names = Array.isArray(body?.names)
 			? body.names.filter((name) => typeof name === 'string')
 			: [];
-		const result = await gelbooruJson(
-			base,
-			sourceParams(services, { s: 'tag', q: 'index', names: names.join(' ') }),
-			services.fetchUpstream,
-			services.log
-		);
+		const result = await lookupSourceTags(services, 'gelbooru', names);
 		if (!result.ok) return upstreamError(result);
-		return jsonData({ tags: normalizeTags(result.json) });
+		return jsonData({ tags: result.tags });
 	}
 
 	if (request.method === 'POST' && url.pathname === '/api/source/gelbooru/autocomplete') {

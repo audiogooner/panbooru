@@ -126,7 +126,7 @@ create table derivatives (
 );
 `;
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 const collectionMigration = `
 alter table albums add column updated_at integer not null default 0;
@@ -208,6 +208,10 @@ create table source_tags (
 );
 `;
 
+const tagCountMigration = `
+alter table source_tags add column count integer not null default 0;
+`;
+
 export function openDatabase(dataDir: string) {
 	const directory = join(dataDir, 'db');
 	mkdirSync(directory, { recursive: true });
@@ -286,6 +290,15 @@ export function openDatabase(dataDir: string) {
 			sqlite
 				.prepare('insert into schema_migrations (version, applied_at, checksum) values (8, ?, ?)')
 				.run(Date.now(), 'cover-auto-v8');
+		})();
+	}
+	const tagCount = sqlite.prepare('select version from schema_migrations where version = 9').get();
+	if (!tagCount) {
+		sqlite.transaction(() => {
+			sqlite.exec(tagCountMigration);
+			sqlite
+				.prepare('insert into schema_migrations (version, applied_at, checksum) values (9, ?, ?)')
+				.run(Date.now(), 'source-tags-count-v9');
 		})();
 	}
 	const newest = sqlite.prepare('select max(version) as version from schema_migrations').get() as {
