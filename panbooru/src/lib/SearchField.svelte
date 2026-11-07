@@ -25,7 +25,7 @@
 	type Rating = (typeof ratingChoices)[number];
 	type Media = (typeof mediaChoices)[number];
 	type Sort = (typeof sortChoices)[number];
-	type Menu = 'rating' | 'sort' | 'media' | 'options';
+	type Menu = 'rating' | 'sort' | 'media';
 	type Suggestion = { name: string; count: number; category?: string };
 	type Filters = { rating: string[]; media: string[]; sort: string };
 	type BookmarkLabel = 'Save search' | 'Save artist' | 'Save character';
@@ -41,9 +41,7 @@
 		selecting = false,
 		selectedCount = 0,
 		allQuery = false,
-		rowHeight,
 		onchrome,
-		onrowheight,
 		onbookmark = () => {},
 		onexitselection = () => {},
 		onselectall = () => {},
@@ -64,9 +62,7 @@
 		selectedCount?: number;
 		allQuery?: boolean;
 		onremove?: () => void;
-		rowHeight?: number;
 		onchrome?: (state: { focused: boolean; popover: boolean }) => void;
-		onrowheight?: (value: number) => void;
 		/** Wave 3 saves or deletes the applied search. */
 		onbookmark?: () => void;
 		/** Wave 3 leaves multi-select and clears the selection. */
@@ -95,7 +91,6 @@
 	let draftSort = $state<Sort>(
 		untrack(() => sortChoices.find((item) => item === applied?.sort) ?? 'Newest')
 	);
-	let internalRow = $state(190);
 	let fieldFocused = $state(false);
 	let suggestDismissed = $state(false);
 	let suggestIndex = $state(-1);
@@ -105,7 +100,6 @@
 	let inputEl: HTMLInputElement | null = null;
 	let popoverEl: HTMLElement | null = null;
 
-	let row = $derived(rowHeight ?? internalRow);
 	let appliedRating = $derived(listed(ratingChoices, applied?.rating));
 	let appliedMedia = $derived(listed(mediaChoices, applied?.media));
 	let appliedSort = $derived(sortChoices.find((item) => item === applied?.sort) ?? 'Newest');
@@ -291,17 +285,6 @@
 		};
 	}
 
-	function syncRow() {
-		if (rowHeight !== undefined) return;
-		try {
-			const value = Number(localStorage.getItem('panbooru-row-height'));
-			if (!Number.isFinite(value)) return;
-			internalRow = Math.min(300, Math.max(110, Math.round(value)));
-		} catch {
-			// Preference storage is unavailable in this browser context.
-		}
-	}
-
 	function toggleChoice<T extends string>(
 		choices: readonly T[],
 		selected: T[],
@@ -311,21 +294,6 @@
 			? selected.filter((item) => item !== choice)
 			: [...selected, choice];
 		return listed(choices, next);
-	}
-
-	function commitRow(value: number) {
-		const next = Math.min(300, Math.max(110, Math.round(value)));
-		internalRow = next;
-		if (onrowheight) {
-			onrowheight(next);
-			return;
-		}
-		document.documentElement.style.setProperty('--row', `${next}px`);
-		try {
-			localStorage.setItem('panbooru-row-height', String(next));
-		} catch {
-			// Preference storage is unavailable in this browser context.
-		}
 	}
 
 	function position(node: HTMLElement) {
@@ -364,7 +332,7 @@
 
 <svelte:window onkeydown={onWindowKey} onclick={onWindowClick} />
 
-<div class="search-toolbar" {@attach syncRow}>
+<div class="search-toolbar">
 	<div class="selection-bar" data-selection-bar hidden={!selecting}>
 		<button
 			type="button"
@@ -525,19 +493,6 @@
 			</div>
 			<button type="submit" class={['search-submit', dirty && 'dirty']}>Search</button>
 		</form>
-		<span class="gallery-options-separator" aria-hidden="true"></span>
-		<button
-			type="button"
-			class="icon-btn"
-			data-gallery-options
-			title="Gallery options"
-			aria-label="Gallery options"
-			aria-expanded={menu === 'options'}
-			onmousedown={keepFocus}
-			onclick={(event) => toggle('options', event.currentTarget)}
-		>
-			<Icon name="sliders" />
-		</button>
 	</div>
 
 	{#if !selecting && (menu || suggestOpen)}
@@ -552,9 +507,7 @@
 					? 'Sorting'
 					: menu === 'media'
 						? 'Media type'
-						: menu === 'options'
-							? 'Gallery options'
-							: 'Tag suggestions'}
+						: 'Tag suggestions'}
 			{@attach capturePopover}
 		>
 			{#if menu === 'rating'}
@@ -594,18 +547,6 @@
 						{choice}
 					</label>
 				{/each}
-			{:else if menu === 'options'}
-				<h3>Thumbnail size</h3>
-				<input
-					class="row-range"
-					type="range"
-					min="110"
-					max="300"
-					value={row}
-					aria-label="Thumbnail size"
-					oninput={(event) => commitRow(Number(event.currentTarget.value))}
-				/>
-				<p class="muted">Layout only · shared across galleries</p>
 			{:else}
 				<ul id="search-suggestions">
 					{#each suggestions as suggestion, index (suggestion.name)}
@@ -790,14 +731,6 @@
 		color: #20172e;
 	}
 
-	.gallery-options-separator {
-		flex: none;
-		width: 1px;
-		height: 20px;
-		margin: 0 5px;
-		background: #343943;
-	}
-
 	.selection-count {
 		flex: 1;
 		font-size: 13px;
@@ -847,17 +780,6 @@
 		height: 16px;
 		margin: 0;
 		padding: 0;
-	}
-
-	.row-range {
-		width: 100%;
-		height: 24px;
-		margin: 4px 0 2px;
-		accent-color: #bcc9e4;
-	}
-
-	.muted {
-		margin: 0;
 	}
 
 	@keyframes reveal {
