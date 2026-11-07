@@ -3,7 +3,16 @@ import { passThroughMedia, singleRangeHeader } from '#lib/server/media/range.ts'
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { compileRatingTags } from '#lib/server/library/rating-tags.ts';
-import { gelbooruJson, normalizePosts, normalizeTags } from '#lib/server/sources/gelbooru.ts';
+import {
+	gelbooruJson,
+	normalizePosts,
+	normalizeTags,
+	readGelbooruAuth
+} from '#lib/server/sources/gelbooru.ts';
+
+function sourceParams(services: AppServices, params: Record<string, string>) {
+	return { ...params, ...readGelbooruAuth(services.db, services.secretPath) };
+}
 
 function upstreamError(result: { reason: 'auth' | 'invalid' }) {
 	if (result.reason === 'auth')
@@ -34,7 +43,7 @@ export async function handleSource(
 		const tags = ratingText ? `${query} ${ratingText}`.trim() : query;
 		const result = await gelbooruJson(
 			base,
-			{ s: 'post', q: 'index', tags, limit: '20' },
+			sourceParams(services, { s: 'post', q: 'index', tags, limit: '20' }),
 			services.fetchUpstream,
 			services.log
 		);
@@ -48,7 +57,7 @@ export async function handleSource(
 		if (!/^\d+$/.test(id)) return jsonError('BAD_REQUEST', 'Post id is invalid', 400);
 		const result = await gelbooruJson(
 			base,
-			{ s: 'post', q: 'index', id },
+			sourceParams(services, { s: 'post', q: 'index', id }),
 			services.fetchUpstream,
 			services.log
 		);
@@ -66,7 +75,7 @@ export async function handleSource(
 			: [];
 		const result = await gelbooruJson(
 			base,
-			{ s: 'tag', names: names.join(' ') },
+			sourceParams(services, { s: 'tag', names: names.join(' ') }),
 			services.fetchUpstream,
 			services.log
 		);
@@ -80,7 +89,7 @@ export async function handleSource(
 		const pattern = typeof body?.pattern === 'string' ? body.pattern : '';
 		const result = await gelbooruJson(
 			base,
-			{ s: 'tag', name_pattern: pattern, limit: '10' },
+			sourceParams(services, { s: 'tag', name_pattern: pattern, limit: '10' }),
 			services.fetchUpstream,
 			services.log
 		);
@@ -103,6 +112,7 @@ export async function handleSource(
 		});
 		if (!decision.ok) return jsonError('MEDIA_BLOCKED', 'Media host is not approved', 502);
 		const headers = new Headers();
+		headers.set('referer', 'https://gelbooru.com/');
 		const range = request.method === 'GET' ? singleRangeHeader(request.headers.get('range')) : null;
 		if (range) headers.set('range', range);
 		const upstream = await services.fetchUpstream(new URL(target), {

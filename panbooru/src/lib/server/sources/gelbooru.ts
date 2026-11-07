@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
+import type { AppDatabase } from '#lib/server/db/index.ts';
+import { sourceCredentials } from '#lib/server/db/schema.ts';
 import { redactSecrets } from '#lib/server/http/redact.ts';
+import { decryptCredential } from '#lib/server/secrets/cipher.ts';
 
 const categories: Record<string, string> = {
 	'0': 'general',
@@ -11,6 +15,33 @@ const categories: Record<string, string> = {
 
 export type UpstreamResult =
 	{ ok: true; json: unknown } | { ok: false; reason: 'auth' | 'invalid' };
+
+export function readGelbooruAuth(db: AppDatabase, secretPath?: string) {
+	if (!secretPath) return {};
+	const row = db
+		.select()
+		.from(sourceCredentials)
+		.where(eq(sourceCredentials.source, 'gelbooru'))
+		.get();
+	if (!row) return {};
+	try {
+		const apiKey = new TextDecoder().decode(
+			decryptCredential(
+				{
+					ciphertext: row.ciphertext,
+					nonce: row.nonce,
+					tag: row.authTag,
+					keyVersion: row.keyVersion
+				},
+				{ keyPath: secretPath, associatedData: 'gelbooru:1' }
+			)
+		);
+		if (!apiKey || !row.userId) return {};
+		return { user_id: row.userId, api_key: apiKey };
+	} catch {
+		return {};
+	}
+}
 
 export async function gelbooruJson(
 	base: string,

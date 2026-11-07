@@ -1,5 +1,8 @@
 import { BlockList, isIP } from 'node:net';
 
+const mediaPath =
+	/^\/images\/[A-Za-z0-9._-]+$|^\/(?:images|thumbnails)\/[0-9a-f]{2}\/[0-9a-f]{2}\/[A-Za-z0-9._-]+$/;
+
 const blocked = new BlockList();
 blocked.addSubnet('0.0.0.0', 8);
 blocked.addSubnet('10.0.0.0', 8);
@@ -37,7 +40,7 @@ export function checkDestination(raw: string, options: DestinationOptions) {
 	if ([...url.searchParams.keys()].length > 0) return { ok: false as const, reason: 'query' };
 	if (isIP(url.hostname)) return { ok: false as const, reason: 'ip-literal' };
 	if (!options.allowHosts.includes(url.hostname)) return { ok: false as const, reason: 'host' };
-	if (!/^\/images\/[A-Za-z0-9._-]+$/.test(url.pathname)) {
+	if (!mediaPath.test(url.pathname) || url.pathname.includes('..')) {
 		return { ok: false as const, reason: 'path' };
 	}
 	const answers = options.lookup(url.hostname);

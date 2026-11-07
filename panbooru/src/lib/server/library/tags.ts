@@ -1,6 +1,6 @@
 import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import type { AppDatabase } from '#lib/server/db/index.ts';
-import { gelbooruJson, normalizeTags } from '#lib/server/sources/gelbooru.ts';
+import { gelbooruJson, normalizeTags, readGelbooruAuth } from '#lib/server/sources/gelbooru.ts';
 
 export type TagCategory = {
 	name: string;
@@ -51,7 +51,11 @@ export async function refreshSavedTags(services: AppServices) {
 	try {
 		const result = await gelbooruJson(
 			base,
-			{ s: 'tag', names: names.join(' ') },
+			{
+				s: 'tag',
+				names: names.join(' '),
+				...readGelbooruAuth(services.db, services.secretPath)
+			},
 			services.fetchUpstream,
 			services.log
 		);

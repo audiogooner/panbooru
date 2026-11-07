@@ -89,6 +89,12 @@ describe('media destination policy', () => {
 
 	it('accepts an approved host and path', () => {
 		expect(checkDestination(`https://${approvedHost}/images/a.jpg`, allowed)).toEqual({ ok: true });
+		expect(checkDestination(`https://${approvedHost}/images/e1/eb/e1eb7e26.png`, allowed)).toEqual({
+			ok: true
+		});
+		expect(
+			checkDestination(`https://${approvedHost}/thumbnails/e1/eb/thumbnail_e1eb7e26.jpg`, allowed)
+		).toEqual({ ok: true });
 	});
 
 	it('rejects unsafe destinations', () => {
@@ -101,7 +107,11 @@ describe('media destination policy', () => {
 			`https://${approvedHost}/images/a.jpg?api_key=secret`,
 			`https://${approvedHost}/images/a.jpg?user_id=7`,
 			`https://${approvedHost}:8443/images/a.jpg`,
-			`https://${approvedHost}/other/a.jpg`
+			`https://${approvedHost}/other/a.jpg`,
+			`https://${approvedHost}/samples/e1/eb/sample_file.jpg`,
+			`https://${approvedHost}/images/e1/file.jpg`,
+			`https://${approvedHost}/images/../a.jpg`,
+			`https://not-in-payload.example/images/e1/eb/file.jpg`
 		];
 		for (const target of cases) {
 			expect(checkDestination(target, allowed).ok, target).toBe(false);
