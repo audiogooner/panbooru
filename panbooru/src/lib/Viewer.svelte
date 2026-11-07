@@ -1,5 +1,9 @@
 <script lang="ts">
+	import Icon from '#lib/Icon.svelte';
+	import AlbumPicker from '#lib/AlbumPicker.svelte';
 	import { viewerChrome } from '#lib/explore.svelte.ts';
+	import type { DragPost } from '#lib/selection.svelte.ts';
+	import { editingText, matchesShortcut } from '#lib/shortcuts.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
 	import { playable } from '#lib/playable.ts';
 	import {
@@ -23,26 +27,62 @@
 	const DETAILS_MIN = 160;
 	const DETAILS_MAX = 560;
 	const DETAILS_PANEL = 292;
+	const tagGroups = [
+		['artist', 'Artist'],
+		['character', 'Character'],
+		['copyright', 'Copyright'],
+		['metadata', 'Metadata'],
+		['general', 'General'],
+		['deprecated', 'Deprecated']
+	] as const;
+	const ratingLabels: Record<string, string> = {
+		g: 'General',
+		s: 'Sensitive',
+		q: 'Questionable',
+		e: 'Explicit',
+		general: 'General',
+		sensitive: 'Sensitive',
+		questionable: 'Questionable',
+		explicit: 'Explicit'
+	};
+
+	type TagCategory = (typeof tagGroups)[number][0];
+	type TagMeta = { category: string; count: number };
 
 	let {
 		post,
 		posts = [],
 		onclose,
 		ontag,
-		onmove
+		onmove,
+		collection = 'remote',
+		albumId = '',
+		imageSrc = '',
+		onremoved
 	}: {
 		post: ExplorationPost;
 		posts?: ExplorationPost[];
 		onclose: () => void;
 		ontag: (
 			tag: string,
-			event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean }
+			event: {
+				shiftKey: boolean;
+				metaKey: boolean;
+				ctrlKey: boolean;
+				altKey: boolean;
+				button?: number;
+			},
+			anchor?: HTMLElement
 		) => void;
 		onmove: (id: string) => void;
+		collection?: 'remote' | 'favorite' | 'album';
+		albumId?: string;
+		imageSrc?: string;
+		onremoved?: (id: string) => void;
 	} = $props();
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
-	let albumName = $state('');
+	let albumPickerFor = $state<string | null>(null);
 	let root = $state<HTMLElement | null>(null);
 	let viewportWidth = $state(1);
 	let viewportHeight = $state(1);
@@ -57,7 +97,18 @@
 	let duration = $state(0);
 	let volume = $state(1);
 	let muted = $state(false);
+	let chromeHidden = $state(false);
+	let zoomShown = $state(false);
+	let favoriteFor = $state('');
+	let favoriteItemId = $state('');
+	let departing = $state<{ src: string } | null>(null);
+	let tagMeta = $state<Record<string, TagMeta>>({});
+	let tagMetaPost = $state('');
 	let clickTimer = 0;
+	let chromeTimer = 0;
+	let zoomTimer = 0;
+	let alive = true;
+	let edgeFromShortcut = false;
 	let video: HTMLVideoElement | null = null;
 
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
@@ -75,8 +126,17 @@
 	);
 	const top = $derived(viewportHeight / 2 + zoom.y - (image.height * zoom.scale) / 2);
 	const foreground = $derived(
-		`/api/media/${post.mediaRef}${needsOriginal(image, zoom.scale) ? '' : '?recipe=display'}`
+		imageSrc ||
+			`/api/media/${post.mediaRef}${needsOriginal(image, zoom.scale) ? '' : '?recipe=display'}`
 	);
+	const dragPost = $derived<DragPost>({
+		remoteId: post.id,
+		tags: post.tags,
+		width: post.width,
+		height: post.height,
+		...(imageSrc ? { itemId: post.id } : { mediaRef: post.mediaRef }),
+		...(post.rating ? { rating: post.rating } : {})
+	});
 	const playableVideo = $derived(post.kind === 'video' && playable(post.mediaType ?? ''));
 	const unsupportedVideo = $derived(post.kind === 'video' && !playable(post.mediaType ?? ''));
 	const sequence = $derived(posts.length ? posts : [post]);
@@ -86,6 +146,38 @@
 		image.width * zoom.scale > (manual ? viewportWidth : frameWidth) + 0.5 ||
 			image.height * zoom.scale > viewportHeight + 0.5
 	);
+	const sourcePage = $derived(
+		`https://gelbooru.com/index.php?page=post&s=view&id=${encodeURIComponent(post.id)}`
+	);
+	const ratingLabel = $derived(
+		post.rating ? (ratingLabels[post.rating.toLowerCase()] ?? post.rating) : '—'
+	);
+	const zoomPercent = $derived(`${Math.round(zoom.scale * 100)}%`);
+	const albumPickerOpen = $derived(albumPickerFor === post.id);
+	const hearted = $derived(favoriteFor === post.id && favoriteItemId !== '');
+	const groupedTags = $derived.by(() => {
+		const known = tagMetaPost === post.id ? tagMeta : {};
+		const buckets: Partial<Record<TagCategory, { name: string; count: number | null }[]>> = {};
+		for (const name of post.tags) {
+			const raw = known[name]?.category;
+			const category: TagCategory = tagGroups.some(([entry]) => entry === raw)
+				? (raw as TagCategory)
+				: 'general';
+			const countValue = known[name]?.count;
+			const count =
+				typeof countValue === 'number' && Number.isFinite(countValue) ? countValue : null;
+			const row = { name, count };
+			const list = buckets[category];
+			if (list) list.push(row);
+			else buckets[category] = [row];
+		}
+		return tagGroups.flatMap(([category, label]) => {
+			const tags = buckets[category];
+			if (!tags?.length) return [];
+			tags.sort((a, b) => a.name.localeCompare(b.name));
+			return [{ category, label, tags }];
+		});
+	});
 
 	function area() {
 		return manual
@@ -93,7 +185,7 @@
 			: { width: frameWidth, height: viewportHeight };
 	}
 
-	function remember(next: Zoom) {
+	function remember(next: Zoom, announce = false) {
 		if (manual) manualZoom = next;
 		else {
 			manualZoom = {
@@ -103,6 +195,37 @@
 			};
 		}
 		manualId = post.id;
+		if (announce) flashZoom();
+	}
+
+	function flashZoom() {
+		zoomShown = true;
+		window.clearTimeout(zoomTimer);
+		zoomTimer = window.setTimeout(() => {
+			if (alive) zoomShown = false;
+		}, 900);
+	}
+
+	function revealChrome() {
+		chromeHidden = false;
+		window.clearTimeout(chromeTimer);
+		chromeTimer = window.setTimeout(() => {
+			if (!alive || albumPickerOpen) return;
+			const active = document.activeElement;
+			if (
+				active instanceof HTMLElement &&
+				root?.contains(active) &&
+				active.closest('button, a, input, textarea, [role="separator"]')
+			) {
+				return;
+			}
+			chromeHidden = true;
+		}, 2200);
+	}
+
+	function hideChrome() {
+		chromeHidden = true;
+		window.clearTimeout(chromeTimer);
 	}
 
 	function localPoint(event: { clientX: number; clientY: number }) {
@@ -115,11 +238,32 @@
 		return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 	}
 
+	function plainKey(event: KeyboardEvent, key: string) {
+		return (
+			!event.repeat &&
+			!event.metaKey &&
+			!event.ctrlKey &&
+			!event.altKey &&
+			!event.shiftKey &&
+			event.key.toLowerCase() === key
+		);
+	}
+
+	function tagAnchor(event: Event) {
+		return event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined;
+	}
+
 	function onTagKey(tag: string, event: KeyboardEvent) {
 		if (event.key !== 'Enter' || event.altKey || event.repeat) return;
 		event.preventDefault();
 		event.stopPropagation();
-		ontag(tag, event);
+		ontag(tag, event, tagAnchor(event));
+	}
+
+	function onTagAux(tag: string, event: MouseEvent) {
+		if (event.button !== 1) return;
+		event.preventDefault();
+		ontag(tag, event, tagAnchor(event));
 	}
 
 	function resizeDetails(event: KeyboardEvent) {
@@ -131,8 +275,67 @@
 		detailsWidth = Math.min(DETAILS_MAX, Math.max(DETAILS_MIN, detailsWidth + delta));
 	}
 
+	function toggleEdge() {
+		viewerChrome.edge = !viewerChrome.edge;
+		edgeFromShortcut = viewerChrome.edge;
+	}
+
+	function dismissShortcutEdge(event: MouseEvent) {
+		if (!edgeFromShortcut || !viewerChrome.edge) return;
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		if (target.closest('.sidebar') || target.closest('.edge-left')) return;
+		viewerChrome.edge = false;
+		edgeFromShortcut = false;
+	}
+
+	function toggleAlbumPicker() {
+		albumPickerFor = albumPickerOpen ? null : post.id;
+		revealChrome();
+	}
+
+	function onViewerClick(event: MouseEvent) {
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		if (!target.closest('.album-picker, [data-album-picker]')) albumPickerFor = null;
+		dismissShortcutEdge(event);
+	}
+
+	function startResize(event: PointerEvent) {
+		if (event.button !== 0) return;
+		const handle = event.currentTarget;
+		if (!(handle instanceof HTMLElement)) return;
+		event.preventDefault();
+		handle.setPointerCapture(event.pointerId);
+		const originX = event.clientX;
+		const origin = detailsWidth;
+		const drag = (moveEvent: PointerEvent) => {
+			detailsWidth = Math.min(
+				DETAILS_MAX,
+				Math.max(DETAILS_MIN, origin + originX - moveEvent.clientX)
+			);
+		};
+		const stop = () => {
+			handle.removeEventListener('pointermove', drag);
+			handle.removeEventListener('pointerup', stop);
+			handle.removeEventListener('pointercancel', stop);
+		};
+		handle.addEventListener('pointermove', drag);
+		handle.addEventListener('pointerup', stop);
+		handle.addEventListener('pointercancel', stop);
+	}
+
+	function toggleDetails() {
+		tagsOpen = !tagsOpen;
+	}
+
 	function onkeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
+			if (albumPickerOpen) {
+				event.preventDefault();
+				albumPickerFor = null;
+				return;
+			}
 			if (document.fullscreenElement) {
 				void document.exitFullscreen();
 				return;
@@ -164,20 +367,65 @@
 			event.preventDefault();
 			togglePlayback();
 		}
+		if (plainKey(event, 'i')) {
+			event.preventDefault();
+			toggleDetails();
+		}
+		if (plainKey(event, 'b')) {
+			event.preventDefault();
+			toggleEdge();
+		}
+		if (matchesShortcut(event, 'favorite')) {
+			event.preventDefault();
+			void favorite();
+		}
+		if (matchesShortcut(event, 'album')) {
+			event.preventDefault();
+			toggleAlbumPicker();
+		}
+		if (matchesShortcut(event, 'remove')) {
+			event.preventDefault();
+			void removeDisplayed();
+		}
 		if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
 			event.preventDefault();
-			move(-1);
+			move(-1, true);
 		}
 		if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D') {
 			event.preventDefault();
-			move(1);
+			move(1, true);
 		}
 	}
 
-	function move(delta: number) {
+	async function removeDisplayed() {
+		if (collection === 'remote' || editingText(document.activeElement)) return;
+		const outgoing = foreground;
+		const id = post.id;
+		departing = { src: outgoing };
+		const path =
+			collection === 'album'
+				? `/api/library/albums/${encodeURIComponent(albumId)}/items/${encodeURIComponent(id)}`
+				: `/api/library/favorites/${encodeURIComponent(id)}`;
+		const response = await fetch(path, { method: 'DELETE' });
+		if (!response.ok) {
+			departing = null;
+			return;
+		}
+		onremoved?.(id);
+		window.setTimeout(() => {
+			if (departing?.src === outgoing) departing = null;
+		}, 480);
+		const next = sequence[index + 1] ?? sequence[index - 1];
+		if (next && next.id !== id) onmove(next.id);
+		else onclose();
+	}
+
+	function move(delta: number, keyboard = false) {
 		const next = sequence[index + delta];
 		if (!next) return;
 		direction = delta;
+		albumPickerFor = null;
+		if (keyboard) hideChrome();
 		onmove(next.id);
 	}
 
@@ -310,7 +558,7 @@
 		if (post.kind === 'video') return;
 		if (!event.ctrlKey && !event.metaKey) return;
 		event.preventDefault();
-		remember(wheelZoom(zoom, image, area(), localPoint(event), event.deltaY));
+		remember(wheelZoom(zoom, image, area(), localPoint(event), event.deltaY), true);
 	}
 
 	function ondblclick(event: MouseEvent) {
@@ -319,9 +567,10 @@
 		if (next.scale <= baseline + 1e-4 && next.x === 0 && next.y === 0) {
 			manualZoom = null;
 			manualId = '';
+			flashZoom();
 			return;
 		}
-		remember(next);
+		remember(next, true);
 	}
 
 	function startDrag(event: PointerEvent) {
@@ -348,6 +597,9 @@
 	function viewerRoot(node: HTMLElement) {
 		root = node;
 		return () => {
+			alive = false;
+			window.clearTimeout(chromeTimer);
+			window.clearTimeout(zoomTimer);
 			if (root === node) root = null;
 		};
 	}
@@ -364,11 +616,30 @@
 	}
 
 	async function favorite() {
-		await fetch('/api/library/favorites', {
+		const id = post.id;
+		const payload = postBody();
+		if (favoriteFor === id && favoriteItemId) {
+			const response = await fetch(`/api/library/favorites/${encodeURIComponent(favoriteItemId)}`, {
+				method: 'DELETE'
+			});
+			if (!response.ok || post.id !== id) return;
+			favoriteFor = '';
+			favoriteItemId = '';
+			return;
+		}
+		const response = await fetch('/api/library/favorites', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(postBody())
+			body: JSON.stringify(payload)
 		});
+		if (!response.ok || post.id !== id) return;
+		const body = (await response.json().catch(() => null)) as {
+			data?: { itemId?: string };
+		} | null;
+		const itemId = body?.data?.itemId;
+		if (!itemId || post.id !== id) return;
+		favoriteFor = id;
+		favoriteItemId = itemId;
 	}
 
 	async function downloadOriginal() {
@@ -386,35 +657,70 @@
 		URL.revokeObjectURL(url);
 	}
 
-	async function addToAlbum() {
-		const name = albumName.trim();
-		if (!name) return;
-		const created = await fetch('/api/library/albums', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ name })
-		});
-		if (!created.ok) return;
-		const body = (await created.json()) as { data: { id: string } };
-		await fetch(`/api/library/albums/${body.data.id}/items`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(postBody())
-		});
+	async function lookupTags(id: string, names: string[], signal: AbortSignal) {
+		try {
+			const response = await fetch('/api/source/gelbooru/tags', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ names }),
+				signal
+			});
+			if (!response.ok) return;
+			const body = (await response.json()) as {
+				data?: { tags?: { name: string; category: string; count: number }[] };
+			};
+			if (signal.aborted || post.id !== id) return;
+			const next: Record<string, TagMeta> = {};
+			for (const tag of body.data?.tags ?? []) {
+				if (!tag?.name) continue;
+				next[tag.name] = { category: tag.category, count: tag.count };
+			}
+			tagMeta = next;
+			tagMetaPost = id;
+		} catch {
+			// Categories stay in the general group when the lookup is unavailable.
+		}
+	}
+
+	function trackTags() {
+		const id = post.id;
+		const names = post.tags;
+		const controller = new AbortController();
+		void lookupTags(id, names, controller.signal);
+		return () => controller.abort();
 	}
 </script>
 
-<svelte:window {onkeydown} />
+<svelte:window
+	{onkeydown}
+	onpointermove={revealChrome}
+	onfocusin={revealChrome}
+	onclick={onViewerClick}
+/>
 
 <div
-	class="viewer"
+	class={[
+		'viewer',
+		{
+			'panel-open': tagsOpen,
+			'image-over-info': manual,
+			'hide-controls': chromeHidden,
+			'edge-open': viewerChrome.edge
+		}
+	]}
+	style:--view-right={tagsOpen ? `${detailsWidth}px` : '0px'}
 	{@attach viewerRoot}
 	{@attach neighborPrefetch(sequence, post.id, direction)}
 	bind:clientWidth={viewportWidth}
 	bind:clientHeight={viewportHeight}
 	{onwheel}
 >
-	<img class="backdrop" src={`/api/media/${post.mediaRef}?recipe=backdrop`} alt="" />
+	<img
+		class="backdrop"
+		src={`/api/media/${post.mediaRef}?recipe=backdrop`}
+		alt=""
+		aria-hidden="true"
+	/>
 	{#if playableVideo}
 		{#key post.id}
 			<div class="player">
@@ -441,7 +747,7 @@
 				>
 					<track kind="captions" label="Captions" srclang="en" src="data:text/vtt,WEBVTT" />
 				</video>
-				<div class="bar">
+				<div class="bar glass">
 					<button type="button" onclick={togglePlayback}>{paused ? 'Play' : 'Pause'}</button>
 					<input
 						aria-label="Timeline"
@@ -500,63 +806,189 @@
 			</div>
 		{/key}
 	{/if}
+	<!-- Wave 3 adds class "leaving" and the outgoing image to play the downward fade. -->
+	<div
+		class={['departure', departing && 'leaving']}
+		data-departure="downward-fade"
+		aria-hidden="true"
+	>
+		{#if departing}<img src={departing.src} alt="" />{/if}
+	</div>
 	{#if loading}
 		<p class="loading">Loading</p>
 	{/if}
-	<button class="previous" type="button" disabled={index <= 0} onclick={() => move(-1)}
-		>Previous post</button
-	>
+	<div class="edge-zone previous-zone"></div>
+	<div class="edge-zone next-zone"></div>
 	<button
-		class="next"
+		class="previous edge-button glass"
 		type="button"
-		disabled={index < 0 || index >= sequence.length - 1}
-		onclick={() => move(1)}>Next post</button
+		aria-label="Previous post"
+		title="Previous · ← / A"
+		disabled={index <= 0}
+		onclick={() => move(-1)}
 	>
-	<button class="back" type="button" onclick={onclose}>Back</button>
-	<button class="download" type="button" onclick={downloadOriginal}>Download</button>
-	<button class="favorite" type="button" onclick={favorite}>Favorite</button>
-	<button class="tags" type="button" onclick={() => (tagsOpen = !tagsOpen)}>Show tags</button>
-	{#if tagsOpen}
-		<ul aria-label="Post tags" style:width="{Math.max(detailsWidth - 52, 120)}px">
-			{#each post.tags as tag (tag)}
-				<li>
-					<button
-						type="button"
-						onclick={(event) => ontag(tag, event)}
-						onkeydown={(event) => onTagKey(tag, event)}>{tag}</button
-					>
-				</li>
-			{/each}
-		</ul>
-	{/if}
-	<!-- A valued separator is the ARIA widget for resizing, which Svelte still treats as non-interactive. -->
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div
-		class="resize"
-		role="separator"
-		tabindex="0"
-		aria-orientation="vertical"
-		aria-label="Resize details"
-		aria-valuemin={DETAILS_MIN}
-		aria-valuemax={DETAILS_MAX}
-		aria-valuenow={detailsWidth}
-		style:right="{detailsWidth}px"
-		onkeydown={resizeDetails}
-	></div>
+		<Icon name="left" />
+	</button>
+	<button
+		class="next edge-button glass"
+		type="button"
+		aria-label="Next post"
+		title="Next · → / D"
+		disabled={index < 0 || index >= sequence.length - 1}
+		onclick={() => move(1)}
+	>
+		<Icon name="right" />
+	</button>
 	<div
 		class="edge-left"
 		role="region"
 		aria-label="Sidebar edge"
 		onpointerenter={() => (viewerChrome.edge = true)}
 	></div>
-	<div class="album-add">
-		<label>
-			Album name
-			<input bind:value={albumName} />
-		</label>
-		<button type="button" onclick={addToAlbum}>Add to album</button>
+	<button
+		class="back glass"
+		type="button"
+		aria-label="Back"
+		title="Back to gallery · Escape"
+		onclick={onclose}
+	>
+		<Icon name="left" />
+	</button>
+	<div class="viewer-bar glass">
+		<button
+			type="button"
+			aria-label="Album selector"
+			aria-pressed={albumPickerOpen}
+			title="Album selector · S"
+			data-album-picker={albumPickerOpen ? 'open' : 'closed'}
+			onclick={toggleAlbumPicker}
+		>
+			<Icon name="book-image" />
+		</button>
+		<button
+			type="button"
+			class={{ hearted }}
+			aria-label="Favorite"
+			aria-pressed={hearted}
+			title="Favorite · W"
+			onclick={favorite}
+		>
+			<Icon name="heart" />
+		</button>
+		<button
+			type="button"
+			aria-label="Download"
+			title="Download original"
+			onclick={downloadOriginal}
+		>
+			<Icon name="download" />
+		</button>
+		<a
+			href={sourcePage}
+			target="_blank"
+			rel="noopener noreferrer"
+			aria-label="Gelbooru page"
+			title="Open Gelbooru page"
+		>
+			<Icon name="external" />
+		</a>
+		<button type="button" aria-label="Fullscreen" title="Fullscreen · F" onclick={toggleFullscreen}>
+			<Icon name="full" />
+		</button>
+		<button
+			type="button"
+			aria-label="Show tags"
+			aria-pressed={tagsOpen}
+			title="Details and tags · I"
+			onclick={toggleDetails}
+		>
+			<Icon name="panel" />
+		</button>
 	</div>
+	<div class="album-picker popup" data-album-picker-panel="hook" hidden={!albumPickerOpen}>
+		<h3>Albums</h3>
+		{#if albumPickerOpen}
+			{#key post.id}
+				<AlbumPicker posts={[dragPost]} />
+			{/key}
+		{/if}
+	</div>
+	{#if tagsOpen}
+		<aside class="right-panel">
+			{#key post.id}
+				<div class="right-scroll" {@attach trackTags}>
+					<div class="details glass">
+						<div class="details-grid">
+							<div>
+								<span>Resolution</span>
+								<strong>{post.width} × {post.height}</strong>
+							</div>
+							<div>
+								<span>File size</span>
+								<strong>—</strong>
+							</div>
+							<div>
+								<span>Rating</span>
+								<strong>{ratingLabel}</strong>
+							</div>
+							<div>
+								<span>Score</span>
+								<strong>—</strong>
+							</div>
+							<div>
+								<span>Original post</span>
+								<a href={sourcePage} target="_blank" rel="noopener noreferrer">Gelbooru</a>
+							</div>
+						</div>
+					</div>
+					<div class="tags-card glass">
+						<ul aria-label="Post tags">
+							{#each groupedTags as group (group.category)}
+								<li class="tag-group">
+									<h3>{group.label}</h3>
+									<ul>
+										{#each group.tags as tag (tag.name)}
+											<li>
+												<button
+													type="button"
+													class="tag-row"
+													aria-label={tag.name}
+													onclick={(event) => ontag(tag.name, event, tagAnchor(event))}
+													onauxclick={(event) => onTagAux(tag.name, event)}
+													onkeydown={(event) => onTagKey(tag.name, event)}
+												>
+													<span class={group.category}>{tag.name.replaceAll('_', ' ')}</span>
+													{#if tag.count !== null}
+														<small aria-hidden="true">{tag.count}</small>
+													{/if}
+												</button>
+											</li>
+										{/each}
+									</ul>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				</div>
+			{/key}
+			<!-- After the tags in source order. Firefox will not Tab out of this fixed viewer to reach an earlier stop, and the background toast sits later in the document. Absolute positioning keeps the handle on the panel edge. -->
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			<div
+				class="resize"
+				role="separator"
+				tabindex="0"
+				aria-orientation="vertical"
+				aria-label="Resize details"
+				aria-valuemin={DETAILS_MIN}
+				aria-valuemax={DETAILS_MAX}
+				aria-valuenow={detailsWidth}
+				onkeydown={resizeDetails}
+				onpointerdown={startResize}
+			></div>
+		</aside>
+	{/if}
+	<p class={['zoom-readout', { visible: zoomShown }]} aria-hidden="true">{zoomPercent}</p>
 </div>
 
 <style>
@@ -564,8 +996,9 @@
 		position: fixed;
 		inset: 0;
 		z-index: 20;
-		background: #000;
 		overflow: hidden;
+		background: #000;
+		color: #dddde3;
 	}
 
 	.backdrop {
@@ -575,7 +1008,8 @@
 		height: calc(100% + 110px);
 		max-width: none;
 		object-fit: cover;
-		filter: blur(46px) brightness(0.23);
+		filter: blur(46px) brightness(0.23) saturate(0.7);
+		transform: scale(1.08);
 		pointer-events: none;
 	}
 
@@ -593,6 +1027,10 @@
 
 	.stage.grabbing {
 		cursor: grabbing;
+	}
+
+	.viewer.hide-controls .stage {
+		cursor: none;
 	}
 
 	.player {
@@ -622,7 +1060,10 @@
 		display: flex;
 		gap: 12px;
 		align-items: center;
+		padding: 8px 12px;
+		border-radius: 14px;
 		color: #dddde3;
+		transition: opacity 0.2s;
 	}
 
 	.bar input[aria-label='Timeline'] {
@@ -646,22 +1087,119 @@
 		left: 50%;
 		margin: 0;
 		color: #dddde3;
+		pointer-events: none;
 		transform: translate(-50%, -50%);
 	}
 
-	.previous,
-	.next {
+	.departure {
 		position: absolute;
-		z-index: 8;
-		top: 50%;
+		z-index: 2;
+		inset: 0;
+		transform-origin: 50% 65%;
+		pointer-events: none;
+		opacity: 0;
+	}
+
+	.departure img {
+		position: absolute;
+		inset: 0;
+		max-width: 100%;
+		max-height: calc(100% - 84px);
+		margin: auto;
+		object-fit: contain;
+	}
+
+	.departure.leaving {
+		animation: viewer-depart 480ms cubic-bezier(0.2, 0.65, 0.3, 1) forwards;
+	}
+
+	.album-picker {
+		position: absolute;
+		z-index: 30;
+		top: 64px;
+		left: 24px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.departure.leaving {
+			animation: none;
+			opacity: 0;
+		}
+	}
+
+	@keyframes viewer-depart {
+		from {
+			transform: translateY(0) rotate(0deg) scale(1);
+			opacity: 1;
+		}
+
+		to {
+			transform: translateY(90px) rotate(4deg) scale(0.94);
+			opacity: 0;
+		}
+	}
+
+	.edge-zone {
+		position: absolute;
+		z-index: 4;
+		top: 18%;
+		bottom: 18%;
+		width: 75px;
+	}
+
+	.previous-zone {
+		left: 0;
+	}
+
+	.next-zone {
+		right: var(--view-right);
+	}
+
+	.edge-button {
+		position: absolute;
+		z-index: 81;
+		top: calc(50% - 22px);
+		display: grid;
+		width: 44px;
+		height: 44px;
+		place-items: center;
+		padding: 0;
+		border: 0;
+		border-radius: 50%;
+		color: white;
+		pointer-events: auto;
+		opacity: 0;
+		transition: opacity 0.15s;
+	}
+
+	.edge-button:disabled {
+		pointer-events: none;
+		opacity: 0;
 	}
 
 	.previous {
-		left: 18px;
+		left: 22px;
 	}
 
 	.next {
-		right: 18px;
+		right: calc(var(--view-right) + 22px);
+	}
+
+	.previous-zone:hover ~ .previous:not(:disabled),
+	.previous:hover:not(:disabled),
+	.previous:focus-visible:not(:disabled),
+	.next-zone:hover ~ .next:not(:disabled),
+	.next:hover:not(:disabled),
+	.next:focus-visible:not(:disabled) {
+		opacity: 1;
+	}
+
+	.viewer.edge-open .previous,
+	.viewer.edge-open .previous:hover,
+	.viewer.edge-open .previous:focus-visible,
+	.viewer.edge-open .previous-zone:hover ~ .previous {
+		pointer-events: none;
+		opacity: 0;
 	}
 
 	.full {
@@ -675,51 +1213,204 @@
 	}
 
 	.back,
-	.tags,
-	.favorite,
-	.download {
-		position: absolute;
-		z-index: 8;
-		top: 18px;
+	.viewer-bar {
+		transition: opacity 0.2s;
 	}
 
-	.download {
-		right: 220px;
-		color: #dddde3;
+	.viewer.hide-controls .back,
+	.viewer.hide-controls .viewer-bar,
+	.viewer.hide-controls .bar {
+		pointer-events: none;
+		opacity: 0;
+	}
+
+	.viewer.hide-controls.panel-open .viewer-bar {
+		pointer-events: auto;
+		opacity: 1;
 	}
 
 	.back {
-		left: 20px;
-	}
-
-	.favorite {
-		right: 124px;
-	}
-
-	.tags {
-		right: 18px;
-	}
-
-	ul {
 		position: absolute;
 		z-index: 8;
-		top: 70px;
+		top: 20px;
+		left: 20px;
+		display: grid;
+		width: 44px;
+		height: 44px;
+		place-items: center;
+		padding: 0;
+		border: 0;
+		border-radius: 50%;
+		color: white;
+	}
+
+	.viewer-bar {
+		position: absolute;
+		z-index: 8;
+		top: 18px;
 		right: 18px;
-		width: 240px;
-		margin: 0;
-		padding: 12px;
-		list-style: none;
-		background: #14171bf2;
-		border: 1px solid #ffffff12;
+		display: flex;
+		gap: 2px;
+		padding: 5px;
 		border-radius: 14px;
+	}
+
+	.viewer-bar button,
+	.viewer-bar a {
+		display: flex;
+		width: auto;
+		height: auto;
+		padding: 10px;
+		border: 0;
+		border-radius: 9px;
+		background: transparent;
+		color: white;
+		text-decoration: none;
+	}
+
+	.viewer-bar button:hover,
+	.viewer-bar a:hover {
+		background: #ffffff14;
+	}
+
+	.viewer-bar button.hearted {
+		color: #ff899c;
+	}
+
+	.viewer-bar button.hearted :global(svg) {
+		fill: currentColor;
+	}
+
+	.right-panel {
+		position: absolute;
+		z-index: 5;
+		top: 82px;
+		right: 18px;
+		bottom: 18px;
+		width: calc(var(--view-right) - 18px);
+	}
+
+	.right-scroll {
+		height: 100%;
+		overflow: auto;
+		padding-right: 1px;
+		scrollbar-width: thin;
+	}
+
+	.details,
+	.tags-card {
+		margin-bottom: 9px;
+		padding: 18px;
+		border-radius: 14px;
+	}
+
+	.details-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 17px;
+	}
+
+	.details span {
+		display: block;
+		margin-bottom: 3px;
+		color: #87909d;
+		font-size: 10px;
+	}
+
+	.details strong {
+		font-size: 12px;
+		font-weight: 450;
+	}
+
+	.details a {
+		color: #abbfdc;
+		font-size: 12px;
+		text-decoration: none;
+	}
+
+	.tags-card ul {
+		display: grid;
+		gap: 0;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.tag-group {
+		margin-bottom: 24px;
+	}
+
+	.tag-group:last-child {
+		margin-bottom: 0;
+	}
+
+	.tag-group h3 {
+		margin: 0 0 10px;
+		color: #c6cdd8;
+		font-size: 11px;
+		font-weight: 650;
+	}
+
+	.tag-row {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+		width: 100%;
+		height: auto;
+		padding: 5px 0;
+		border: 0;
+		background: none;
+		line-height: 1.5;
+		text-align: left;
+	}
+
+	.tag-row span {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+
+	.tag-row small {
+		flex: none;
+		padding-top: 2px;
+		color: #6e7887;
+		font-size: 10px;
+	}
+
+	.tag-row:hover span {
+		text-decoration: underline;
+	}
+
+	.artist {
+		color: var(--red);
+	}
+
+	.character {
+		color: var(--green);
+	}
+
+	.copyright {
+		color: var(--pink);
+	}
+
+	.metadata {
+		color: var(--yellow);
+	}
+
+	.general {
+		color: var(--blue);
+	}
+
+	.deprecated {
+		color: #888f99;
 	}
 
 	.resize {
 		position: absolute;
-		z-index: 8;
-		top: 82px;
-		right: 292px;
-		bottom: 18px;
+		z-index: 6;
+		top: 0;
+		bottom: 0;
+		left: -7px;
 		width: 8px;
 		cursor: ew-resize;
 	}
@@ -733,17 +1424,25 @@
 		width: 28px;
 	}
 
-	.album-add {
+	.zoom-readout {
 		position: absolute;
 		z-index: 8;
-		left: 36px;
-		bottom: 18px;
-		display: flex;
-		gap: 8px;
-		align-items: end;
+		bottom: 22px;
+		left: 50%;
+		margin: 0;
+		padding: 5px 11px;
+		border-radius: 8px;
+		background: #14171ba0;
+		color: #bbc5d4;
+		font-size: 11px;
+		pointer-events: none;
+		opacity: 0;
+		transform: translateX(-50%);
+		backdrop-filter: blur(10px);
+		transition: opacity 0.15s;
 	}
 
-	.album-add label {
-		color: #dddde3;
+	.zoom-readout.visible {
+		opacity: 1;
 	}
 </style>

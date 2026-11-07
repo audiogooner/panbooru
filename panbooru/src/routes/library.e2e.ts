@@ -90,8 +90,9 @@ test('a favorited fixture post is shown from the saved file', async ({ page }) =
 			response.url().includes('/items') &&
 			response.ok()
 	);
-	await page.getByLabel('Album name').fill('Night');
-	await page.getByRole('button', { name: 'Add to album' }).click();
+	await page.getByRole('button', { name: 'Album selector' }).click();
+	await page.getByLabel('New album title').fill('Night');
+	await page.getByRole('button', { name: 'Create', exact: true }).click();
 	await added;
 
 	await page.goto('/albums');
@@ -258,8 +259,9 @@ test('deleting an album keeps a post that is still a favorite', async ({ page })
 			response.url().includes('/items') &&
 			response.ok()
 	);
-	await page.getByLabel('Album name').fill('Dusk');
-	await page.getByRole('button', { name: 'Add to album' }).click();
+	await page.getByRole('button', { name: 'Album selector' }).click();
+	await page.getByLabel('New album title').fill('Dusk');
+	await page.getByRole('button', { name: 'Create', exact: true }).click();
 	await added;
 
 	await page.goto('/albums');

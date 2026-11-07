@@ -100,11 +100,6 @@ test('login, search, the viewer, and favorite work from the keyboard', async ({ 
 	await page.keyboard.press('ArrowLeft');
 	await expect(separator).toHaveAttribute('aria-valuenow', String(before));
 
-	await focusControl(page, page.getByLabel('Album name'));
-	await page.keyboard.press('ArrowRight');
-	await page.keyboard.press('Shift+Enter');
-	await page.keyboard.press('Control+Enter');
-	await expect(separator).toHaveAttribute('aria-valuenow', String(before));
 	await page.keyboard.press('Escape');
 	await expect(page.getByLabel('Tags')).toHaveValue('sunset landscape');
 	await expect(nav.getByRole('button', { name: 'sunset', exact: true })).toHaveCount(1);

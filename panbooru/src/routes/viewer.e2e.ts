@@ -119,9 +119,6 @@ test('viewer steps through loaded posts and replaces a slow still', async ({ pag
 	await expect(page.locator('video.full')).toHaveAttribute('aria-label', /clip/);
 	await expect(page.locator('.viewer img.full')).toHaveCount(0);
 
-	await page.getByLabel('Album name').focus();
-	await page.keyboard.press('ArrowRight');
-	await expect(page.locator('video.full')).toHaveAttribute('aria-label', /clip/);
 	await page.getByRole('button', { name: 'Next post' }).click();
 	await expect(page.getByRole('button', { name: 'Next post' })).toBeDisabled();
 	await page.keyboard.press('ArrowRight');
