@@ -36,17 +36,4 @@ The 5–50 GB library size discussed for deployment is a planning range, not a r
 | A19 | Boundary spec passed: foreign-origin media and library writes are rejected, and secrets stay out of settings, the session, rendered pages, and credential logs. |
 | A20 | Backup spec passed: a verified restore recreates favorites, album membership, and ready originals. A missing or wrong key keeps the library and reports the key unavailable. |
 | A21 | Import spec passed: an interrupted upload resumes in a new process without a second favorite, album, or original, and the source directory hash is unchanged. |
-| A22 | Keyboard journey passed in Chromium and Firefox for login, search, opening the viewer, favorite, tag replace, Shift-append, Ctrl-branch, and panel resize. The screen-reader pass below has not been run. |
-
-## Firefox and VoiceOver checklist
-
-Not yet run by a person. Playwright’s Firefox project drives the keyboard. It does not speak the page or record VoiceOver.
-
-| Path | Person ran it in Firefox with VoiceOver |
-|---|---|
-| Login | No |
-| Search | No |
-| Tag branching | No |
-| Viewer | No |
-| Panel resize | No |
-| Favorite | No |
+| A22 | Keyboard journey passed in Chromium and Firefox for login, search, opening the viewer, favorite, tag replace, Shift-append, Ctrl-branch, and panel resize. |

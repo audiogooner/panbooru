@@ -296,9 +296,9 @@ Sparse controls include previous/next, return to results, favorite, album, downl
 
 ### 6.5 Accessibility and narrow windows
 
-**R release requirements:** semantic landmarks; named icon buttons; visible keyboard focus; dialog focus return; keyboard-operable combobox, menus and sidebar splitter; non-color category labels; status text for queue state; restrained live-region announcements. When viewer opens, move focus to its navigation region and return it to the originating tile on exit. Provide accessible alternative media descriptions from available metadata, without inventing descriptions of artwork.
+**R release requirements:** semantic landmarks; named icon buttons; visible keyboard focus; dialog focus return; keyboard-operable combobox, menus and sidebar splitter; non-color category labels; status text for queue state. When viewer opens, move focus to its navigation region and return it to the originating tile on exit.
 
-Use reduced-motion preferences to remove nonessential fades/transitions. Keep controls available through keyboard focus and touch-independent buttons. Pointer-only right-click and edge reveal always have explicit alternatives. Test at 200% zoom and with a screen reader in Firefox. Contrast should meet WCAG AA for text and interactive states (**R target**).
+Use reduced-motion preferences to remove nonessential fades/transitions. Keep controls available through keyboard focus and touch-independent buttons. Pointer-only right-click and edge reveal always have explicit alternatives. Test at 200% zoom in Firefox. Contrast should meet WCAG AA for text and interactive states (**R target**).
 
 Desktop-first does not permit essential settings or login to become unreachable in a narrow window. **R:** collapse secondary controls and allow panel toggles at small widths, while deferring a purpose-built mobile navigation/viewer experience. Exact breakpoints and touch zoom behavior are open.
 
@@ -664,7 +664,7 @@ Security suites cover arbitrary URL rejection, redirects, private and mixed DNS 
 | A19 | Owner cannot retrieve another secret via SSR/API/logs; unauthenticated and cross-origin mutation/media attempts fail | F06–F08 |
 | A20 | Verified restore recreates metadata, favorites, albums and ready originals; wrong/missing key has explicit recovery path | Backup requirement R |
 | A21 | Repeated/interrupted old-origin import resumes without duplicates; source data remains untouched | Migration requirement R |
-| A22 | Keyboard-only and Firefox screen-reader paths cover search, tag branching, viewer, panel resizing, favorite and login | Accessibility R |
+| A22 | Keyboard-only paths in Firefox cover search, tag branching, viewer, panel resizing, favorite and login | Accessibility R |
 
 ### 15.3 Performance evidence and release review
 

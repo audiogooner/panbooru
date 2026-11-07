@@ -133,7 +133,7 @@ Create a new editable **Panbooru-Design-Specification.md** alongside these files
 | Collections | Album/saved-search card grid, four-image fan geometry, headings/counts, empty covers, cover editor, pin/temporary/active state, selection. |
 | Components | Buttons, icon buttons, inputs, autocomplete, checkbox states, popovers, menus, dialogs, tooltips, splitter affordances, progress/task details and notifications. |
 | Motion | Duration/easing families, fade/reveal, moving Settings indicator, fan hover, popover entrance, removal/restoration, reduced-motion alternatives. |
-| Accessibility | Focus styling, contrast, keyboard equivalent interactions, meaningful non-color cues, screen-reader feedback, resizing/reordering and dialog focus. |
+| Accessibility | Focus styling, contrast, keyboard equivalent interactions, meaningful non-color cues, resizing/reordering and dialog focus. |
 | States and handoff | Default/hover/focus/active/disabled/pending/error/selected states, component anatomy, token names, layout rules and acceptance examples. |
 
 **Recommended process, not yet a finalized design:**

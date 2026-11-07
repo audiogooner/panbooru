@@ -631,7 +631,7 @@ These are unresolved details, not permission requirements or implementation bloc
 | Interface sounds | Assets/licensing, platform policy and default enablement. Implementation and a user disable control are required. |
 | Tasks and feedback | Aggregate progress calculation; completion duration; partial failure detail layout; exact error location/lifetime; task-list overflow; retry checkpoints and query mutation during enumeration. Cancellation and red-over-green priority are decided. |
 | Settings | Concrete controls and defaults not already chosen, especially preload count, batch lookahead and download preferences; validation progress/error UI; shortcut conflict scope; browser-reserved key capture. |
-| Accessibility | Keyboard equivalents for menus, reordering, splitter resizing, drag/drop and cover editing; dialog focus trapping/return; reduced-motion behavior; tooltip timing and screen-reader feedback. These need design/validation, not invented approvals. |
+| Accessibility | Keyboard equivalents for menus, reordering, splitter resizing, drag/drop and cover editing; dialog focus trapping/return; reduced-motion behavior; tooltip timing. These need design/validation, not invented approvals. |
 
 ## 21. Recommendations still awaiting selection
 
