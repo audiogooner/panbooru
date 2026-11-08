@@ -189,6 +189,15 @@
 	const scoreLabel = $derived(
 		typeof post.score === 'number' && Number.isFinite(post.score) ? String(post.score) : '—'
 	);
+	const postedAtLabel = $derived(
+		typeof post.postedAt === 'number' && Number.isFinite(post.postedAt)
+			? new Date(post.postedAt).toLocaleDateString(undefined, {
+					year: 'numeric',
+					month: 'short',
+					day: 'numeric'
+				})
+			: '—'
+	);
 	const fileSizeLabel = $derived(
 		typeof post.fileSize === 'number' && Number.isFinite(post.fileSize)
 			? formatBytes(post.fileSize)
@@ -1126,6 +1135,10 @@
 							<div>
 								<span>Score</span>
 								<strong>{scoreLabel}</strong>
+							</div>
+							<div>
+								<span>Posted</span>
+								<strong>{postedAtLabel}</strong>
 							</div>
 							<div>
 								<span>Original post</span>

@@ -9,6 +9,8 @@ export type ExplorationPost = {
 	rating?: string;
 	score?: number;
 	fileSize?: number;
+	/** Gelbooru post creation time as Unix milliseconds. */
+	postedAt?: number;
 	kind?: 'image' | 'video';
 	mediaType?: string;
 };

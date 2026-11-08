@@ -69,7 +69,8 @@ async function startFixture(mode: Mode = 'ok') {
 			height: 50,
 			rating: 'general',
 			score: 42,
-			file_size: 2048
+			file_size: 2048,
+			created_at: 'Sat Dec 14 04:00:44 -0600 2024'
 		};
 		response.writeHead(200, { 'content-type': 'application/json' });
 		response.end(JSON.stringify({ post: id ? post : [post] }));
@@ -155,7 +156,8 @@ describe('gelbooru source and media', () => {
 			id: '10',
 			tags: ['landscape', 'sunset'],
 			score: 42,
-			fileSize: 2048
+			fileSize: 2048,
+			postedAt: Date.parse('Sat Dec 14 04:00:44 -0600 2024')
 		});
 		expect(body.data.posts[0].fileUrl).toBeUndefined();
 		expect(body.data.posts[0].mediaRef.startsWith('http')).toBe(false);

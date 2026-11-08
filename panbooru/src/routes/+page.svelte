@@ -536,6 +536,7 @@
 					rating?: string;
 					score?: number;
 					fileSize?: number;
+					postedAt?: number;
 					kind?: 'image' | 'video';
 					mediaType?: string;
 				}[];

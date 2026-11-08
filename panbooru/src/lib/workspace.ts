@@ -271,6 +271,7 @@ function postFrom(value: unknown): ExplorationPost | null {
 	const kind = value.kind === 'image' || value.kind === 'video' ? value.kind : undefined;
 	const score = value.score;
 	const fileSize = value.fileSize;
+	const postedAt = value.postedAt;
 	return {
 		id: value.id,
 		width: value.width,
@@ -282,6 +283,7 @@ function postFrom(value: unknown): ExplorationPost | null {
 		...(typeof fileSize === 'number' && Number.isFinite(fileSize) && fileSize >= 0
 			? { fileSize }
 			: {}),
+		...(typeof postedAt === 'number' && Number.isFinite(postedAt) ? { postedAt } : {}),
 		...(kind ? { kind } : {}),
 		...(typeof value.mediaType === 'string' ? { mediaType: value.mediaType } : {})
 	};

@@ -108,6 +108,13 @@ export type MediaTarget = {
 	previewUrl: string;
 };
 
+/** Parse Gelbooru `created_at` (e.g. "Sat Dec 14 04:00:44 -0600 2024") to Unix ms. */
+function postedAtMs(value: unknown) {
+	if (typeof value !== 'string' || !value) return undefined;
+	const ms = Date.parse(value);
+	return Number.isFinite(ms) ? ms : undefined;
+}
+
 export function normalizePosts(json: unknown, media: MediaRegistry) {
 	const root = json as { post?: unknown };
 	return records(root.post).map((post) => {
@@ -119,6 +126,7 @@ export function normalizePosts(json: unknown, media: MediaRegistry) {
 			.filter(Boolean);
 		const score = Number(post.score);
 		const fileSize = Number(post.file_size);
+		const postedAt = postedAtMs(post.created_at);
 		return {
 			id: String(post.id ?? ''),
 			tags,
@@ -127,6 +135,7 @@ export function normalizePosts(json: unknown, media: MediaRegistry) {
 			rating: String(post.rating ?? ''),
 			...(Number.isFinite(score) ? { score } : {}),
 			...(Number.isFinite(fileSize) && fileSize >= 0 ? { fileSize } : {}),
+			...(postedAt !== undefined ? { postedAt } : {}),
 			mediaRef,
 			kind: isVideoFile(fileUrl) ? 'video' : 'image',
 			mediaType: mediaType(fileUrl)
