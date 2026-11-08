@@ -1275,6 +1275,10 @@
 		background: transparent;
 	}
 
+	.tile.selected {
+		box-shadow: inset 0 0 0 3px #bfd3f5;
+	}
+
 	.tile.selected :global(.thumb) {
 		filter: brightness(0.68);
 	}
