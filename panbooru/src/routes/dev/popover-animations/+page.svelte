@@ -10,7 +10,7 @@
 	type Origin = (typeof origins)[number];
 	type EasingName = (typeof easingNames)[number];
 	type Surface = 'filter' | 'context' | 'album';
-	type Kind = 'current' | 'scale' | 'slide' | 'slide-full' | 'pop' | 'blur' | 'clip';
+	type Kind = 'current' | 'scale' | 'slide' | 'height' | 'pop' | 'blur' | 'clip';
 
 	type Motion = {
 		id: string;
@@ -38,8 +38,8 @@
 		opacity: number;
 		blur: number;
 		clip: boolean;
-		/** Translate by the panel's own height so it enters fully from above, clipped by the stage. */
-		fullSlide: boolean;
+		/** Grow/shrink the panel's own height instead of clipping or translating. */
+		height: boolean;
 	};
 
 	const easingCss: Record<EasingName, string> = {
@@ -138,8 +138,8 @@
 				...base,
 				id: 'slide-fast',
 				label: 'Slide crisp',
-				blurb: 'Full-height slide under the trigger, like clip reveal, but the panel moves the whole way.',
-				kind: 'slide-full',
+				blurb: 'Like clip reveal under the trigger, but the container height itself opens and closes.',
+				kind: 'height',
 				enter: 120,
 				exit: 100,
 				linked: true,
@@ -189,15 +189,33 @@
 		];
 	}
 
-	function popover(_node: Element, params: MotionParams): TransitionConfig {
+	function popover(node: Element, params: MotionParams): TransitionConfig {
+		const el = node as HTMLElement;
+		const style = getComputedStyle(el);
+		const targetHeight = params.height ? el.offsetHeight : 0;
+		const paddingTop = params.height ? Number.parseFloat(style.paddingTop) || 0 : 0;
+		const paddingBottom = params.height ? Number.parseFloat(style.paddingBottom) || 0 : 0;
+		const borderTop = params.height ? Number.parseFloat(style.borderTopWidth) || 0 : 0;
+		const borderBottom = params.height ? Number.parseFloat(style.borderBottomWidth) || 0 : 0;
 		return {
 			duration: params.duration,
 			easing: easingFns[params.easing],
 			css: (t, u) => {
 				const scale = params.scale + (1 - params.scale) * t;
 				const opacity = params.opacity + (1 - params.opacity) * t;
-				const y = params.fullSlide ? `${-100 * u}%` : `${params.y * u}px`;
-				const parts = [`opacity:${opacity}`, `transform:translateY(${y}) scale(${scale})`];
+				const parts = [`opacity:${opacity}`];
+				if (params.height) {
+					parts.push(
+						'overflow:hidden',
+						`height:${t * targetHeight}px`,
+						`padding-top:${t * paddingTop}px`,
+						`padding-bottom:${t * paddingBottom}px`,
+						`border-top-width:${t * borderTop}px`,
+						`border-bottom-width:${t * borderBottom}px`
+					);
+				} else {
+					parts.push(`transform:translateY(${params.y * u}px) scale(${scale})`);
+				}
 				if (params.blur > 0) parts.push(`filter:blur(${params.blur * u}px)`);
 				if (params.clip) parts.push(`clip-path:inset(0 0 ${u * 100}% 0)`);
 				return parts.join(';');
@@ -214,7 +232,7 @@
 			opacity: motion.opacity,
 			blur: motion.blur,
 			clip: motion.kind === 'clip',
-			fullSlide: motion.kind === 'slide-full'
+			height: motion.kind === 'height'
 		};
 	}
 
@@ -227,26 +245,21 @@
 	}
 
 	function cssBlock(motion: Motion) {
-		const full = motion.kind === 'slide-full';
+		const expand = motion.kind === 'height';
 		const move =
-			full || motion.y !== 0 || motion.scale !== 1
-				? `transform: translateY(${full ? '-100%' : `${num(motion.y)}px`}) scale(${num(motion.scale)});`
+			!expand && (motion.y !== 0 || motion.scale !== 1)
+				? `transform: translateY(${num(motion.y)}px) scale(${num(motion.scale)});`
 				: '';
 		const from = [
 			motion.opacity !== 1 ? `opacity: ${num(motion.opacity)};` : '',
+			expand ? 'overflow: hidden;' : '',
+			expand ? 'height: 0;' : '',
 			move,
 			motion.blur > 0 ? `filter: blur(${num(motion.blur)}px);` : '',
 			motion.kind === 'clip' ? 'clip-path: inset(0 0 100% 0);' : ''
 		].filter(Boolean);
 		if (from.length === 0) from.push('opacity: 1;');
-		const stage = full
-			? `.stage {
-  overflow: hidden; /* keep the slide under the trigger, like clip reveal */
-}
-
-`
-			: '';
-		return `${stage}.popup {
+		return `.popup {
   transform-origin: ${motion.origin};
   animation: popover-in ${motion.enter}ms ${easingCss[motion.easing]};
 }
@@ -255,16 +268,17 @@
   from {
     ${from.join('\n    ')}
   }
+  ${expand ? 'to {\n    height: var(--popover-height);\n  }' : ''}
 }
 
-/* exit ${motion.exit}ms — reverse the same from-state */`;
+/* exit ${motion.exit}ms — reverse the same from-state${expand ? '; set --popover-height from offsetHeight' : ''} */`;
 	}
 
 	function svelteBlock(motion: Motion) {
 		const fields = [
 			`duration: ${motion.enter}`,
-			motion.kind === 'slide-full' ? 'fullSlide: true' : `y: ${num(motion.y)}`,
-			`scale: ${num(motion.scale)}`,
+			motion.kind === 'height' ? 'height: true' : `y: ${num(motion.y)}`,
+			motion.kind === 'height' ? '' : `scale: ${num(motion.scale)}`,
 			`opacity: ${num(motion.opacity)}`,
 			`blur: ${num(motion.blur)}`,
 			motion.kind === 'clip' ? 'clip: true' : '',
