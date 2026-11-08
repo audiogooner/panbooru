@@ -1294,7 +1294,7 @@
 		background: #bfd3f5;
 		color: #172238;
 		--icon-size: 12px;
-		box-shadow: 0 2px 12px rgb(0 0 0 / 40%);
+		box-shadow: 0 2px 12px rgb(18 42 88 / 55%);
 	}
 
 	.tile.selected .selection-badge {
@@ -1313,7 +1313,7 @@
 	}
 
 	.selection-outline path {
-		filter: drop-shadow(0 2px 12px rgb(0 0 0 / 40%));
+		filter: drop-shadow(0 2px 12px rgb(18 42 88 / 55%));
 		opacity: 1;
 	}
 
