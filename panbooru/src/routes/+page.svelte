@@ -152,6 +152,33 @@
 
 	bindShellToolbar(toolbar);
 
+	let viewing = $derived(activeView().mode === 'viewer');
+
+	/** Leaving the viewer must show the search bar again (scroll-hide may have been left on). */
+	$effect(() => {
+		if (viewing) return;
+		shell.hidden = false;
+	});
+
+	/**
+	 * Background views are created with a query and empty posts. Switching to one
+	 * only changes `activeId`, so the gallery has to fetch when that view becomes active.
+	 * Depend on `activeId` only so same-view searches/tag replaces keep their own `load` calls.
+	 */
+	$effect(() => {
+		const id = navigation.activeId;
+		const view = untrack(
+			() => navigation.views.find((item) => item.id === id) ?? navigation.views[0]!
+		);
+		if (view.mode === 'viewer') return;
+		shell.hidden = false;
+		shell.overlay = false;
+		if (!view.query.trim() || view.posts.length > 0) return;
+		if (untrack(() => settled) === `${view.id}:${view.query}`) return;
+		error = '';
+		void load(view.query);
+	});
+
 	function viewKey(id: string, query: string) {
 		return `${id}\0${query}`;
 	}

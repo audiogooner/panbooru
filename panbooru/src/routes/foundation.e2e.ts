@@ -70,11 +70,11 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 	const mediaSrc = await image.getAttribute('src');
 	await image.click();
 	await expect(page.locator('.gallery img')).toHaveCount(0);
-	const viewerImage = page.locator('.viewer .full');
+	const viewerImage = page.locator('.viewer .full.foreground');
 	await expect(viewerImage).toBeVisible();
 	await expect(viewerImage).toHaveAttribute('src', /recipe=display/);
 	const fullSrc = await viewerImage.getAttribute('src');
-	const backdropSrc = await page.locator('.viewer .backdrop').getAttribute('src');
+	const backdropSrc = await page.locator('.viewer .backdrop.settled').getAttribute('src');
 	expect(backdropSrc).toContain('recipe=backdrop');
 	expect(backdropSrc).not.toBe(fullSrc);
 	expect(fullSrc).not.toBe(mediaSrc);
@@ -141,6 +141,9 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 	await page.getByRole('button', { name: 'Show tags' }).click();
 	await tags.getByRole('button', { name: 'sunset', exact: true }).click({ modifiers: ['Meta'] });
 	await expect(nav.getByRole('button', { name: 'sunset', exact: true })).toBeVisible();
-	await page.keyboard.press('Escape');
-	await expect(page.getByLabel('Tags')).toHaveValue('sunset landscape');
+	await expect(page.getByText('Opened in background')).toBeVisible();
+	await page.getByRole('button', { name: 'Open', exact: true }).click();
+	await expect(page.getByLabel('Tags')).toHaveValue('sunset');
+	await expect(page.locator('.gallery img').first()).toBeVisible();
+	await expect(page.locator('.viewer')).toHaveCount(0);
 });
