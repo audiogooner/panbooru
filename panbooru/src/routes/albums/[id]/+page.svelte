@@ -337,11 +337,6 @@
 							/>
 						</button>
 					{/if}
-					<ul aria-label="Classifications">
-						{#each item.tagList as tag (tag.name)}
-							<li data-category={tag.category}>{tag.name}</li>
-						{/each}
-					</ul>
 					<button type="button" onclick={() => removeIds([item.id])}>Remove from album</button>
 				</li>
 			{/each}
@@ -409,24 +404,6 @@
 
 	.tile.selected :global(.thumb) {
 		filter: brightness(0.68);
-	}
-
-	ul ul {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
-		margin: 0;
-		padding: 0;
-		list-style: none;
-	}
-
-	li li {
-		display: block;
-		padding: 2px 8px;
-		border-radius: 8px;
-		background: #252a33;
-		color: #d5dbe6;
-		font-size: 13px;
 	}
 
 	.notice {

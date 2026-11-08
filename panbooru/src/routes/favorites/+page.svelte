@@ -364,11 +364,6 @@
 									<Icon name="heart" />
 								</button>
 							</div>
-							<ul class="tags" aria-label="Classifications">
-								{#each post.tagList as tag (tag.name)}
-									<li data-category={tag.category}>{tag.name}</li>
-								{/each}
-							</ul>
 						</div>
 					{/each}
 				</div>
@@ -491,31 +486,6 @@
 		margin: 0;
 		place-items: center;
 		color: #8c94a4;
-	}
-
-	.tags {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
-		margin: 8px 0 0;
-		padding: 0;
-		list-style: none;
-	}
-
-	[data-category='artist'] {
-		color: #e07a9a;
-	}
-
-	[data-category='character'] {
-		color: #7ec8a3;
-	}
-
-	[data-category='copyright'] {
-		color: #7ea3e0;
-	}
-
-	[data-category='metadata'] {
-		color: #d4b36a;
 	}
 
 	@supports (corner-shape: squircle) {
