@@ -134,6 +134,20 @@
 			},
 			{
 				...base,
+				id: 'slide-fast',
+				label: 'Slide crisp',
+				blurb: 'Fast slide down on open, up on close. No scale.',
+				kind: 'slide',
+				enter: 120,
+				exit: 100,
+				linked: true,
+				easing: 'cubicOut',
+				y: -8,
+				scale: 1,
+				opacity: 0
+			},
+			{
+				...base,
 				id: 'pop',
 				label: 'Pop',
 				blurb: 'Scale with a small overshoot at the end.',
