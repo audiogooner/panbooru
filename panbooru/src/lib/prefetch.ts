@@ -8,12 +8,29 @@ export function withRecipe(base: string, recipe: string) {
 	return `${base}${base.includes('?') ? '&' : '?'}recipe=${recipe}`;
 }
 
+export function mediaBaseFor(
+	post: Pick<ExplorationPost, 'id' | 'mediaRef'>,
+	library = false
+) {
+	if (library) return `/api/library/originals/${encodeURIComponent(post.id)}`;
+	if (!post.mediaRef) return '';
+	return `/api/media/${post.mediaRef}`;
+}
+
 export function warmPost(mediaRef: string, kind?: string) {
-	if (!mediaRef) return;
-	const base = `/api/media/${mediaRef}`;
+	warmMedia(`/api/media/${mediaRef}`, kind);
+}
+
+export function warmMedia(base: string, kind?: string) {
+	if (!base) return;
 	if (kind === 'video') {
-		warm(withRecipe(base, 'display'));
+		warm(withRecipe(base, base.includes('/api/library/originals/') ? 'thumb' : 'display'));
 		warm(base, 'HEAD');
+		return;
+	}
+	if (base.includes('/api/library/originals/')) {
+		warm(withRecipe(base, 'thumb'));
+		warm(base);
 		return;
 	}
 	warm(withRecipe(base, 'display'));
@@ -23,24 +40,25 @@ export function warmPost(mediaRef: string, kind?: string) {
 export function neighborPrefetch(
 	posts: ExplorationPost[],
 	id: string,
-	direction: number
+	direction: number,
+	library = false
 ): Attachment {
 	return () => {
 		const at = posts.findIndex((item) => item.id === id);
-		warmNeighbor(posts[at]);
+		warmNeighbor(posts[at], library);
 		const offsets = direction >= 0 ? [1, -1] : [-1, 1];
-		for (const offset of offsets) warmNeighbor(posts[at + offset]);
+		for (const offset of offsets) warmNeighbor(posts[at + offset], library);
 	};
 }
 
-export function warmExplorationPost(post: ExplorationPost | undefined) {
+export function warmExplorationPost(post: ExplorationPost | undefined, library = false) {
 	if (!post) return;
 	warmTagMeta(post.tags);
-	warmPost(post.mediaRef, post.kind);
+	warmMedia(mediaBaseFor(post, library), post.kind);
 }
 
-function warmNeighbor(neighbor: ExplorationPost | undefined) {
-	warmExplorationPost(neighbor);
+function warmNeighbor(neighbor: ExplorationPost | undefined, library = false) {
+	warmExplorationPost(neighbor, library);
 }
 
 function warm(url: string, method: 'GET' | 'HEAD' = 'GET') {

@@ -28,7 +28,7 @@ const upstreamBytes = new WeakMap<AppServices, Map<string, Promise<Buffer>>>();
 
 export async function serveMedia(request: Request, url: URL, services: AppServices) {
 	const ref = decodeURIComponent(url.pathname.slice('/api/media/'.length));
-	const target = services.media.get(ref);
+	const target = resolveMediaTarget(services, ref);
 	if (!target) return jsonError('NOT_FOUND', 'Media was not found', 404);
 	const download = url.searchParams.get('download') === '1';
 	const recipe = download ? null : recipeFromQuery(url.searchParams.get('recipe'));
@@ -317,6 +317,37 @@ function readyOriginal(services: AppServices, fileUrl: string) {
 		.get(canonicalFileUrl(fileUrl)) as { relativePath: string; mime: string | null } | undefined;
 	if (!row?.relativePath || row.relativePath.includes('..')) return null;
 	return row;
+}
+
+function resolveMediaTarget(services: AppServices, ref: string): MediaTarget | undefined {
+	if (!ref || ref.includes('/') || ref.includes('..')) return undefined;
+	const sealed = services.media.get(ref);
+	if (sealed) return sealed;
+	return targetFromSavedItem(services, ref);
+}
+
+/** Album/favorites pass the durable saved-item id as mediaRef. */
+function targetFromSavedItem(services: AppServices, itemId: string): MediaTarget | undefined {
+	const row = services.db.$client
+		.prepare(
+			`select post_snapshots.snapshot as snapshot
+			 from saved_items
+			 join post_snapshots on post_snapshots.id = saved_items.snapshot_id
+			 where saved_items.id = ?`
+		)
+		.get(itemId) as { snapshot: string } | undefined;
+	if (!row) return undefined;
+	try {
+		const parsed = JSON.parse(row.snapshot) as { fileUrl?: unknown; previewUrl?: unknown };
+		if (typeof parsed.fileUrl !== 'string' || !parsed.fileUrl) return undefined;
+		const preview =
+			typeof parsed.previewUrl === 'string' && parsed.previewUrl
+				? parsed.previewUrl
+				: parsed.fileUrl;
+		return { fileUrl: parsed.fileUrl, previewUrl: preview };
+	} catch {
+		return undefined;
+	}
 }
 
 async function fetchApproved(

@@ -89,6 +89,10 @@ describe('background original download', () => {
 		await expect
 			.poll(async () => (await app.fetch(original, { headers: { cookie } })).status)
 			.toBe(200);
+		// Album/favorites pass the saved item id as mediaRef into /api/media.
+		expect(
+			(await app.fetch(`/api/media/${body.data.itemId}`, { headers: { cookie } })).status
+		).toBe(200);
 	});
 
 	it('sends the gelbooru referer and accepts video originals', async () => {

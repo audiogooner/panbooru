@@ -780,7 +780,9 @@
 	}
 
 	async function downloadOriginal() {
-		const response = await fetch(`/api/media/${post.mediaRef}?download=1`);
+		const response = await fetch(
+			`${mediaBase}${mediaBase.includes('?') ? '&' : '?'}download=1`
+		);
 		if (!response.ok) return;
 		const blob = await response.blob();
 		const url = URL.createObjectURL(blob);
@@ -849,7 +851,7 @@
 	]}
 	style:--view-right={tagsOpen ? `${detailsWidth}px` : '0px'}
 	{@attach viewerRoot}
-	{@attach neighborPrefetch(sequence, post.id, direction)}
+	{@attach neighborPrefetch(sequence, post.id, direction, Boolean(imageSrc))}
 	bind:clientWidth={viewportWidth}
 	bind:clientHeight={viewportHeight}
 	{onwheel}
@@ -868,8 +870,8 @@
 			<div class="player">
 				<video
 					class="full"
-					src={`/api/media/${post.mediaRef}`}
-					poster={`/api/media/${post.mediaRef}?recipe=display`}
+					src={mediaBase}
+					poster={withRecipe(mediaBase, imageSrc ? 'thumb' : 'display')}
 					aria-label={post.tags.join(' ')}
 					data-post={post.id}
 					loop
