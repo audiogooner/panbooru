@@ -7,7 +7,7 @@
 	import Thumbnail from '#lib/Thumbnail.svelte';
 	import Viewer from '#lib/Viewer.svelte';
 	import { queryFromTag } from '#lib/explore.svelte.ts';
-	import { justifyRows } from '#lib/justify.ts';
+	import { justifyRows, selectionOutline, squirclePath, squircleRadius } from '#lib/justify.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
 	import {
@@ -341,10 +341,13 @@
 				{#each rows as row, index (index)}
 					<div class="row">
 						{#each row as post (post.id)}
-							<div class="post" style:width="{post.width}px">
+							{@const width = Math.max(post.width, 1)}
+							{@const height = Math.max(post.height, 1)}
+							<div class="post" style:width="{width}px">
 								<div
 									class={['tile', isSelected(selectionKey, post.id) && 'selected']}
-									style:height="{post.height}px"
+									style:height="{height}px"
+									style:--squircle={`path('${squirclePath(width, height, squircleRadius)}')`}
 									data-post={post.id}
 								>
 									<span class="selection-badge" aria-hidden="true"><Icon name="check" /></span>
@@ -360,12 +363,25 @@
 											<Thumbnail
 												src={`${post.src}?recipe=thumb`}
 												alt={post.tags}
-												width={Math.round(post.width)}
-												height={Math.round(post.height)}
+												width={Math.round(width)}
+												height={Math.round(height)}
 												draggable={false}
 											/>
 										{/if}
 									</button>
+									{#if isSelected(selectionKey, post.id)}
+										<svg
+											class="selection-outline"
+											viewBox="0 0 {width} {height}"
+											aria-hidden="true"
+										>
+											<path
+												d={selectionOutline(width, height)}
+												fill="#bfd3f5"
+												fill-rule="evenodd"
+											/>
+										</svg>
+									{/if}
 									<div class="tile-actions">
 										<button
 											type="button"
@@ -454,12 +470,9 @@
 		position: relative;
 		overflow: hidden;
 		border: 0;
-		border-radius: 17px;
+		border-radius: 0;
 		background: #191e25;
-	}
-
-	.tile.selected {
-		box-shadow: inset 0 0 0 3px #bfd3f5;
+		clip-path: var(--squircle);
 	}
 
 	.open {
@@ -478,7 +491,7 @@
 		position: absolute;
 		top: 9px;
 		left: 9px;
-		z-index: 2;
+		z-index: 5;
 		width: 20px;
 		height: 20px;
 		place-items: center;
@@ -500,11 +513,19 @@
 		color: #8c94a4;
 	}
 
-	@supports (corner-shape: squircle) {
-		.tile {
-			border-radius: 23px;
-			corner-shape: squircle;
-		}
+	.selection-outline {
+		position: absolute;
+		inset: 0;
+		z-index: 3;
+		width: 100%;
+		height: 100%;
+		overflow: visible;
+		pointer-events: none;
+	}
+
+	.selection-outline path {
+		filter: none;
+		opacity: 1;
 	}
 
 	.tile-actions {

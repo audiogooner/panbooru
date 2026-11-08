@@ -10,7 +10,13 @@
 	import { warmExplorationPost } from '#lib/prefetch.ts';
 	import { warmTagMeta } from '#lib/tag-meta.ts';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
-	import { favoriteOutline, justifyRows, squirclePath, squircleRadius } from '#lib/justify.ts';
+	import {
+		favoriteOutline,
+		justifyRows,
+		selectionOutline,
+		squirclePath,
+		squircleRadius
+	} from '#lib/justify.ts';
 	import { replaceTag } from '#lib/navigation.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
 	import {
@@ -1105,6 +1111,19 @@
 											}}
 										/>
 									</button>
+									{#if isSelected(selectionKey, post.id)}
+										<svg
+											class="selection-outline"
+											viewBox="0 0 {width} {height}"
+											aria-hidden="true"
+										>
+											<path
+												d={selectionOutline(width, height)}
+												fill="#bfd3f5"
+												fill-rule="evenodd"
+											/>
+										</svg>
+									{/if}
 									{#if outline}
 										<svg
 											class="favorite-outline"
@@ -1242,26 +1261,13 @@
 		flex: none;
 		overflow: hidden;
 		border: 0;
-		border-radius: 17px;
+		border-radius: 0;
 		background: #191e25;
+		clip-path: var(--squircle);
 	}
 
 	.tile.placeholder {
 		opacity: 0.45;
-	}
-
-	@supports (corner-shape: squircle) {
-		.tile {
-			border-radius: 23px;
-			corner-shape: squircle;
-		}
-	}
-
-	@supports not (corner-shape: squircle) {
-		.tile {
-			border-radius: 0;
-			clip-path: var(--squircle);
-		}
 	}
 
 	.open {
@@ -1273,10 +1279,6 @@
 		padding: 0;
 		border: 0;
 		background: transparent;
-	}
-
-	.tile.selected {
-		box-shadow: inset 0 0 0 3px #bfd3f5;
 	}
 
 	.tile.selected :global(.thumb) {
@@ -1302,6 +1304,7 @@
 		display: grid;
 	}
 
+	.selection-outline,
 	.favorite-outline {
 		position: absolute;
 		inset: 0;
@@ -1312,6 +1315,7 @@
 		pointer-events: none;
 	}
 
+	.selection-outline path,
 	.favorite-outline path {
 		filter: none;
 		opacity: 1;
