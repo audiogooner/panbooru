@@ -285,7 +285,7 @@
 
 <svelte:window {onkeydown} />
 
-<main>
+<main class="album">
 	<h1>{data.album.name}</h1>
 	<button type="button" onclick={() => (confirming = true)}>Delete</button>
 	{#if confirming}
@@ -336,50 +336,53 @@
 	{:else if data.posts.length === 0}
 		<p>No results</p>
 	{:else}
-		<div class="gallery" bind:clientWidth={galleryWidth} {@attach measureRow}>
-			{#each rows as row, index (index)}
-				<div class="row">
-					{#each row as post (post.id)}
-						<div class="post" style:width="{post.width}px">
-							<div
-								class={['tile', isSelected(selectionKey, post.id) && 'selected']}
-								style:height="{post.height}px"
-								data-post={post.id}
-							>
-								<span class="selection-badge" aria-hidden="true"><Icon name="check" /></span>
-								<button
-									type="button"
-									class="open"
-									aria-label="Open image"
-									onclick={(event) => onTileClick(post.id, event)}
-								></button>
-								{#if post.availability === 'unavailable'}
-									<p class="missing">Unavailable</p>
-								{:else if post.availability === 'ready'}
-									<Thumbnail
-										src={`${post.src}?recipe=thumb`}
-										alt={post.tags}
-										width={Math.round(post.width)}
-										height={Math.round(post.height)}
-										draggable={false}
-									/>
-								{/if}
-								<button
-									type="button"
-									class="tile-action"
-									aria-label="Remove from album"
-									onclick={(event) => {
-										event.stopPropagation();
-										void removeIds([post.id]);
-									}}
+		<div class="frame" bind:clientWidth={galleryWidth}>
+			<div class="gallery" {@attach measureRow}>
+				{#each rows as row, index (index)}
+					<div class="row">
+						{#each row as post (post.id)}
+							<div class="post" style:width="{post.width}px">
+								<div
+									class={['tile', isSelected(selectionKey, post.id) && 'selected']}
+									style:height="{post.height}px"
+									data-post={post.id}
 								>
-									<Icon name="trash" />
-								</button>
+									<span class="selection-badge" aria-hidden="true"><Icon name="check" /></span>
+									<button
+										type="button"
+										class="open"
+										aria-label="Open image"
+										onclick={(event) => onTileClick(post.id, event)}
+									>
+										{#if post.availability === 'unavailable'}
+											<p class="missing">Unavailable</p>
+										{:else if post.availability === 'ready'}
+											<Thumbnail
+												src={`${post.src}?recipe=thumb`}
+												alt={post.tags}
+												width={Math.round(post.width)}
+												height={Math.round(post.height)}
+												draggable={false}
+											/>
+										{/if}
+									</button>
+									<button
+										type="button"
+										class="tile-action"
+										aria-label="Remove from album"
+										onclick={(event) => {
+											event.stopPropagation();
+											void removeIds([post.id]);
+										}}
+									>
+										<Icon name="trash" />
+									</button>
+								</div>
 							</div>
-						</div>
-					{/each}
-				</div>
-			{/each}
+						{/each}
+					</div>
+				{/each}
+			</div>
 		</div>
 	{/if}
 	{#if openPost}
@@ -420,9 +423,19 @@
 </main>
 
 <style>
+	.album {
+		max-width: none;
+		padding: 16px 26px 24px;
+	}
+
 	.notice {
 		margin: 0;
 		color: #ef9ba7;
+	}
+
+	.frame,
+	.gallery {
+		width: 100%;
 	}
 
 	.gallery {
@@ -451,6 +464,8 @@
 		position: absolute;
 		inset: 0;
 		z-index: 1;
+		width: 100%;
+		height: 100%;
 		padding: 0;
 		border: 0;
 		background: transparent;

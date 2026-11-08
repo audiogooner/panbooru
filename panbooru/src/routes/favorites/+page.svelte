@@ -319,55 +319,58 @@
 	{:else if data.favorites.length === 0}
 		<p class="quiet">No results</p>
 	{:else}
-		<div class="gallery" bind:clientWidth={galleryWidth} {@attach measureRow}>
-			{#each rows as row, index (index)}
-				<div class="row">
-					{#each row as post (post.id)}
-						<div class="post" style:width="{post.width}px">
-							<!-- Drag and the menu sit on the tile; the image button opens or selects it. -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div
-								class={['tile', isSelected(selectionKey, post.id) && 'selected', { 'drop-target': false }]}
-								style:height="{post.height}px"
-								draggable="true"
-								data-post={post.id}
-								ondragstart={(event) => onTileDrag(event, post)}
-								oncontextmenu={(event) => onTileMenu(event, post)}
-							>
-								<span class="selection-badge" aria-hidden="true"><Icon name="check" /></span>
-								<button
-									type="button"
-									class="open"
-									aria-label="Open image"
-									onclick={(event) => onTileClick(post.id, event)}
-								></button>
-								{#if post.availability === 'unavailable'}
-									<p class="missing">Unavailable</p>
-								{:else if post.availability === 'ready'}
-									<Thumbnail
-										src={`${post.src}?recipe=thumb`}
-										alt={post.tags}
-										width={Math.round(post.width)}
-										height={Math.round(post.height)}
-										draggable={false}
-									/>
-								{/if}
-								<button
-									type="button"
-									class="tile-action hearted"
-									aria-label="Remove favorite"
-									onclick={(event) => {
-										event.stopPropagation();
-										void removeFavorite(post.id);
-									}}
+		<div class="frame" bind:clientWidth={galleryWidth}>
+			<div class="gallery" {@attach measureRow}>
+				{#each rows as row, index (index)}
+					<div class="row">
+						{#each row as post (post.id)}
+							<div class="post" style:width="{post.width}px">
+								<!-- Drag and the menu sit on the tile; the image button opens or selects it. -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									class={['tile', isSelected(selectionKey, post.id) && 'selected', { 'drop-target': false }]}
+									style:height="{post.height}px"
+									draggable="true"
+									data-post={post.id}
+									ondragstart={(event) => onTileDrag(event, post)}
+									oncontextmenu={(event) => onTileMenu(event, post)}
 								>
-									<Icon name="heart" />
-								</button>
+									<span class="selection-badge" aria-hidden="true"><Icon name="check" /></span>
+									<button
+										type="button"
+										class="open"
+										aria-label="Open image"
+										onclick={(event) => onTileClick(post.id, event)}
+									>
+										{#if post.availability === 'unavailable'}
+											<p class="missing">Unavailable</p>
+										{:else if post.availability === 'ready'}
+											<Thumbnail
+												src={`${post.src}?recipe=thumb`}
+												alt={post.tags}
+												width={Math.round(post.width)}
+												height={Math.round(post.height)}
+												draggable={false}
+											/>
+										{/if}
+									</button>
+									<button
+										type="button"
+										class="tile-action hearted"
+										aria-label="Remove favorite"
+										onclick={(event) => {
+											event.stopPropagation();
+											void removeFavorite(post.id);
+										}}
+									>
+										<Icon name="heart" />
+									</button>
+								</div>
 							</div>
-						</div>
-					{/each}
-				</div>
-			{/each}
+						{/each}
+					</div>
+				{/each}
+			</div>
 		</div>
 	{/if}
 	{#if openPost}
@@ -425,6 +428,11 @@
 		color: #ef9ba7;
 	}
 
+	.frame,
+	.gallery {
+		width: 100%;
+	}
+
 	.gallery {
 		display: grid;
 		gap: 4px;
@@ -451,6 +459,8 @@
 		position: absolute;
 		inset: 0;
 		z-index: 1;
+		width: 100%;
+		height: 100%;
 		padding: 0;
 		border: 0;
 		background: transparent;
