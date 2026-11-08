@@ -10,7 +10,7 @@
 	type Origin = (typeof origins)[number];
 	type EasingName = (typeof easingNames)[number];
 	type Surface = 'filter' | 'context' | 'album';
-	type Kind = 'current' | 'scale' | 'slide' | 'pop' | 'blur' | 'clip';
+	type Kind = 'current' | 'scale' | 'slide' | 'slide-full' | 'pop' | 'blur' | 'clip';
 
 	type Motion = {
 		id: string;
@@ -38,6 +38,8 @@
 		opacity: number;
 		blur: number;
 		clip: boolean;
+		/** Translate by the panel's own height so it enters fully from above, clipped by the stage. */
+		fullSlide: boolean;
 	};
 
 	const easingCss: Record<EasingName, string> = {
@@ -136,15 +138,15 @@
 				...base,
 				id: 'slide-fast',
 				label: 'Slide crisp',
-				blurb: 'Fast slide down on open, up on close. No scale.',
-				kind: 'slide',
+				blurb: 'Full-height slide under the trigger, like clip reveal, but the panel moves the whole way.',
+				kind: 'slide-full',
 				enter: 120,
 				exit: 100,
 				linked: true,
 				easing: 'cubicOut',
-				y: -8,
+				y: 0,
 				scale: 1,
-				opacity: 0
+				opacity: 1
 			},
 			{
 				...base,
@@ -193,9 +195,9 @@
 			easing: easingFns[params.easing],
 			css: (t, u) => {
 				const scale = params.scale + (1 - params.scale) * t;
-				const y = params.y * u;
 				const opacity = params.opacity + (1 - params.opacity) * t;
-				const parts = [`opacity:${opacity}`, `transform:translateY(${y}px) scale(${scale})`];
+				const y = params.fullSlide ? `${-100 * u}%` : `${params.y * u}px`;
+				const parts = [`opacity:${opacity}`, `transform:translateY(${y}) scale(${scale})`];
 				if (params.blur > 0) parts.push(`filter:blur(${params.blur * u}px)`);
 				if (params.clip) parts.push(`clip-path:inset(0 0 ${u * 100}% 0)`);
 				return parts.join(';');
@@ -211,7 +213,8 @@
 			scale: motion.scale,
 			opacity: motion.opacity,
 			blur: motion.blur,
-			clip: motion.kind === 'clip'
+			clip: motion.kind === 'clip',
+			fullSlide: motion.kind === 'slide-full'
 		};
 	}
 
@@ -224,16 +227,26 @@
 	}
 
 	function cssBlock(motion: Motion) {
+		const full = motion.kind === 'slide-full';
+		const move =
+			full || motion.y !== 0 || motion.scale !== 1
+				? `transform: translateY(${full ? '-100%' : `${num(motion.y)}px`}) scale(${num(motion.scale)});`
+				: '';
 		const from = [
 			motion.opacity !== 1 ? `opacity: ${num(motion.opacity)};` : '',
-			motion.y !== 0 || motion.scale !== 1
-				? `transform: translateY(${num(motion.y)}px) scale(${num(motion.scale)});`
-				: '',
+			move,
 			motion.blur > 0 ? `filter: blur(${num(motion.blur)}px);` : '',
 			motion.kind === 'clip' ? 'clip-path: inset(0 0 100% 0);' : ''
 		].filter(Boolean);
 		if (from.length === 0) from.push('opacity: 1;');
-		return `.popup {
+		const stage = full
+			? `.stage {
+  overflow: hidden; /* keep the slide under the trigger, like clip reveal */
+}
+
+`
+			: '';
+		return `${stage}.popup {
   transform-origin: ${motion.origin};
   animation: popover-in ${motion.enter}ms ${easingCss[motion.easing]};
 }
@@ -250,7 +263,7 @@
 	function svelteBlock(motion: Motion) {
 		const fields = [
 			`duration: ${motion.enter}`,
-			`y: ${num(motion.y)}`,
+			motion.kind === 'slide-full' ? 'fullSlide: true' : `y: ${num(motion.y)}`,
 			`scale: ${num(motion.scale)}`,
 			`opacity: ${num(motion.opacity)}`,
 			`blur: ${num(motion.blur)}`,
@@ -790,6 +803,7 @@
 
 	.stage {
 		position: relative;
+		overflow: hidden;
 		height: 250px;
 	}
 
