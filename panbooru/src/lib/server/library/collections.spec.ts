@@ -55,7 +55,7 @@ describe('collection schema and routes', () => {
 			db,
 			dataDir,
 			now: () => now,
-			media: new Map(),
+			media: { get: () => undefined, put: () => '' },
 			log: () => {}
 		} as unknown as AppServices;
 	}

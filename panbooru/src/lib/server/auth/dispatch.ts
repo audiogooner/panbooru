@@ -11,12 +11,13 @@ import { readinessReport } from '#lib/server/health.ts';
 import { jsonData, jsonError } from '#lib/server/http/json.ts';
 import { decryptCredential, encryptCredential } from '#lib/server/secrets/cipher.ts';
 import { gelbooruCredentialState } from '#lib/server/sources/gelbooru.ts';
-import { probeGelbooruCredentials, type MediaTarget } from '#lib/server/sources/gelbooru.ts';
+import { probeGelbooruCredentials } from '#lib/server/sources/gelbooru.ts';
 import { handleBackup } from '#lib/server/library/backup.ts';
 import { e2eLibraryReset } from '#lib/server/library/e2e-reset.ts';
 import { handleImport } from '#lib/server/library/import.ts';
 import { handleLibrary } from '#lib/server/library/routes.ts';
 import { type UpstreamRequest } from '#lib/server/media/range.ts';
+import type { MediaRegistry } from '#lib/server/media/refs.ts';
 import { handleSource } from '#lib/server/sources/routes.ts';
 
 export type { UpstreamRequest };
@@ -33,7 +34,7 @@ export type AppServices = {
 	allowHosts: readonly string[];
 	lookup: (hostname: string) => readonly string[] | Promise<readonly string[]>;
 	fetchUpstream: (input: URL, init?: UpstreamRequest) => Promise<Response>;
-	media: Map<string, MediaTarget>;
+	media: MediaRegistry;
 };
 
 const minimumPassword = 12;

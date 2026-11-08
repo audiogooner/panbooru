@@ -163,9 +163,9 @@ describe('verified backup', () => {
 							db,
 							dataDir,
 							now: () => 3_000,
-							media: new Map(),
+							media: { get: () => undefined, put: () => '' },
 							log: () => {}
-						} as AppServices;
+						} as unknown as AppServices;
 						const denied = await handleLibrary(
 							new Request('http://127.0.0.1/api/library/favorites', {
 								method: 'POST',
@@ -213,9 +213,9 @@ describe('verified backup', () => {
 			db,
 			dataDir,
 			now: () => 4_000,
-			media: new Map(),
+			media: { get: () => undefined, put: () => '' },
 			log: () => {}
-		} as AppServices;
+		} as unknown as AppServices;
 		const after = await handleLibrary(
 			new Request('http://127.0.0.1/api/library/albums', {
 				method: 'POST',

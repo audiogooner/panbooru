@@ -150,6 +150,46 @@ describe('secret and origin boundary', () => {
 		expect((await favorite(again.app, again.cookie, second)).status).toBe(200);
 	});
 
+	it('serves media refs minted before a process restart', async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), 'panbooru-media-restart-'));
+		const secretPath = join(dataDir, 'secrets', 'master.key');
+		const fixture = await startFixture();
+		const first = await startApp({
+			dataDir,
+			secretPath,
+			fixtureOrigin: fixture.origin,
+			allowHosts: [approvedHost],
+			lookup: () => ['93.184.216.34'],
+			fetchUpstream: (input) => fetch(new URL(`${input.pathname}${input.search}`, fixture.origin))
+		});
+		cleanups.push(async () => {
+			await fixture.close();
+			await rm(dataDir, { recursive: true, force: true });
+		});
+		const token = (await readFile(join(dataDir, 'bootstrap.token'), 'utf8')).trim();
+		const setup = await first.fetch('/api/setup/owner', {
+			method: 'POST',
+			headers: { origin: first.origin, 'content-type': 'application/json' },
+			body: JSON.stringify({ token, password })
+		});
+		expect(setup.status).toBe(200);
+		const cookie = (setup.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+		const ref = await mediaRef(first, cookie);
+		expect((await first.fetch(`/api/media/${ref}`, { headers: { cookie } })).status).toBe(200);
+		await first.close();
+
+		const second = await startApp({
+			dataDir,
+			secretPath,
+			fixtureOrigin: fixture.origin,
+			allowHosts: [approvedHost],
+			lookup: () => ['93.184.216.34'],
+			fetchUpstream: (input) => fetch(new URL(`${input.pathname}${input.search}`, fixture.origin))
+		});
+		cleanups.push(() => second.close());
+		expect((await second.fetch(`/api/media/${ref}`, { headers: { cookie } })).status).toBe(200);
+	});
+
 	it('keeps secrets out of settings, the session, rendered pages, and credential logs', async () => {
 		const { app, cookie, dataDir, secretPath, logs } = await boot();
 		const saved = await app.fetch('/api/settings/gelbooru/validate', {

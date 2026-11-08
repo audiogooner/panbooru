@@ -64,7 +64,7 @@ describe('library export route', () => {
 			db,
 			dataDir,
 			now: () => 1_000,
-			media: new Map(),
+			media: { get: () => undefined, put: () => '' },
 			log: () => {},
 			fixtureOrigin: 'https://fixture.test',
 			fetchUpstream

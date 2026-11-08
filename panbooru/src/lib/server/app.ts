@@ -21,6 +21,7 @@ import {
 	reconcileOriginals,
 	runServiceOriginalPass
 } from '#lib/server/library/worker.ts';
+import { createMediaRegistry } from '#lib/server/media/refs.ts';
 
 export type StartAppOptions = {
 	dataDir?: string;
@@ -123,7 +124,7 @@ export function createServices(options: StartAppOptions = {}): AppServices {
 					redirect: init?.redirect
 				});
 			}),
-		media: new Map()
+		media: createMediaRegistry({ dataDir: config.dataDir, secretPath: config.secretPath })
 	};
 }
 

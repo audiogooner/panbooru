@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import { mediaTypeForPath } from '#lib/playable.ts';
 import { isVideoFile } from '#lib/server/media/derivative.ts';
+import type { MediaRegistry } from '#lib/server/media/refs.ts';
 import { eq } from 'drizzle-orm';
 import type { AppDatabase } from '#lib/server/db/index.ts';
 import { sourceCredentials } from '#lib/server/db/schema.ts';
@@ -108,13 +108,12 @@ export type MediaTarget = {
 	previewUrl: string;
 };
 
-export function normalizePosts(json: unknown, media: Map<string, MediaTarget>) {
+export function normalizePosts(json: unknown, media: MediaRegistry) {
 	const root = json as { post?: unknown };
 	return records(root.post).map((post) => {
 		const fileUrl = String(post.file_url ?? '');
 		const previewUrl = String(post.preview_url ?? fileUrl);
-		const mediaRef = randomUUID();
-		if (fileUrl) media.set(mediaRef, { fileUrl, previewUrl });
+		const mediaRef = fileUrl ? media.put({ fileUrl, previewUrl }) : '';
 		const tags = String(post.tags ?? '')
 			.split(/\s+/)
 			.filter(Boolean);
