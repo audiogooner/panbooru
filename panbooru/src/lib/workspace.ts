@@ -114,6 +114,17 @@ export function toCheckpointView(view: ExplorationView): CheckpointView {
 			tags: [...post.tags],
 			mediaRef: post.mediaRef,
 			...(post.rating ? { rating: post.rating } : {}),
+			...(typeof post.score === 'number' && Number.isFinite(post.score)
+				? { score: post.score }
+				: {}),
+			...(typeof post.fileSize === 'number' &&
+			Number.isFinite(post.fileSize) &&
+			post.fileSize >= 0
+				? { fileSize: post.fileSize }
+				: {}),
+			...(typeof post.postedAt === 'number' && Number.isFinite(post.postedAt)
+				? { postedAt: post.postedAt }
+				: {}),
 			...(post.kind ? { kind: post.kind } : {}),
 			...(post.mediaType ? { mediaType: post.mediaType } : {})
 		})),

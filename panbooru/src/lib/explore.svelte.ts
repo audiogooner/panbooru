@@ -199,6 +199,23 @@ export function storePosts(posts: ExplorationPost[]) {
 	persistWorkspace();
 }
 
+/** Keep a probed or known file size on the post so details reuse it like score. */
+export function rememberPostFileSize(postId: string, fileSize: number) {
+	if (!Number.isFinite(fileSize) || fileSize < 0) return;
+	let changed = false;
+	navigation.views = navigation.views.map((view) => {
+		const index = view.posts.findIndex((post) => post.id === postId);
+		if (index < 0) return view;
+		const post = view.posts[index]!;
+		if (post.fileSize === fileSize) return view;
+		changed = true;
+		const posts = [...view.posts];
+		posts[index] = { ...post, fileSize };
+		return { ...view, posts };
+	});
+	if (changed) persistWorkspace();
+}
+
 export function appendPosts(posts: ExplorationPost[]) {
 	const id = navigation.activeId;
 	navigation.views = navigation.views.map((view) => {

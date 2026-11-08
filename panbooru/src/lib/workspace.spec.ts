@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { back, forward, replaceTag, restoreNavigation } from '#lib/navigation.ts';
 import {
 	WORKSPACE_KEY,
+	checkpointFromViews,
 	patchCheckpoint,
 	readCheckpoint,
 	readHistoryCursor,
@@ -169,6 +170,43 @@ describe('workspace checkpoint', () => {
 		});
 		const restored = explorationViews(readCheckpoint(store)?.views ?? []);
 		expect(restored[0]?.applied).toMatchObject({ sort: 'Random', seed: 4242 });
+	});
+
+	it('caches score and file size on posts through the write path used for session restore', () => {
+		const store = memoryStore();
+		const draft = checkpointFromViews(
+			[
+				{
+					id: 'water',
+					query: 'water',
+					posts: [
+						{
+							id: 'post-1',
+							width: 100,
+							height: 50,
+							tags: ['water'],
+							mediaRef: 'media-1',
+							score: 42,
+							fileSize: 2048,
+							postedAt: 1_734_170_444_000
+						}
+					],
+					postId: 'post-1',
+					mode: 'viewer',
+					scroll: 0,
+					scrollAnchor: null
+				}
+			],
+			'water'
+		);
+		saveCheckpoint(store, draft);
+		const restored = explorationViews(readCheckpoint(store)?.views ?? []);
+		expect(restored[0]?.posts[0]).toMatchObject({
+			id: 'post-1',
+			score: 42,
+			fileSize: 2048,
+			postedAt: 1_734_170_444_000
+		});
 	});
 
 	it('leaves zoom, pan, and video position out of the checkpoint', () => {

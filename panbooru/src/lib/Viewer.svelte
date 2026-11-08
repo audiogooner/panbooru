@@ -58,7 +58,8 @@
 		collection = 'remote',
 		albumId = '',
 		imageSrc = '',
-		onremoved
+		onremoved,
+		onfilesize
 	}: {
 		post: ExplorationPost;
 		posts?: ExplorationPost[];
@@ -79,6 +80,7 @@
 		albumId?: string;
 		imageSrc?: string;
 		onremoved?: (id: string) => void;
+		onfilesize?: (bytes: number) => void;
 	} = $props();
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
@@ -839,6 +841,7 @@
 				const bytes = header == null ? NaN : Number(header);
 				if (!Number.isFinite(bytes) || bytes < 0) return;
 				probedSize = { id, bytes };
+				onfilesize?.(bytes);
 			} catch {
 				/* aborted or unreachable */
 			}

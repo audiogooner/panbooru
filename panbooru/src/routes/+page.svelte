@@ -22,6 +22,7 @@
 		popNavigation,
 		queryFromTag,
 		rememberGalleryScroll,
+		rememberPostFileSize,
 		rememberResultPage,
 		rememberResultTags,
 		rememberResultsFilled,
@@ -1042,6 +1043,7 @@
 		onclose={hideViewer}
 		ontag={onTag}
 		onmove={showPost}
+		onfilesize={(bytes) => rememberPostFileSize(currentPost.id, bytes)}
 	/>
 {:else}
 	<section class="explore" {@attach applyStoredRow}>
