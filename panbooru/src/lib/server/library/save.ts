@@ -17,6 +17,8 @@ import {
 	releaseHeldFiles,
 	unretainedPaths
 } from '#lib/server/library/removal.ts';
+import { isVideoFile } from '#lib/server/media/derivative.ts';
+import { mediaTypeForPath } from '#lib/playable.ts';
 
 export type PostMetadata = {
 	source: string;
@@ -25,6 +27,7 @@ export type PostMetadata = {
 	width: number;
 	height: number;
 	fileUrl: string;
+	previewUrl?: string;
 	rating?: string;
 };
 
@@ -59,7 +62,19 @@ export function metadataHash(metadata: PostMetadata) {
 	return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
+function snapshotPreviewUrl(metadata: PostMetadata) {
+	const preview = metadata.previewUrl?.trim();
+	if (!preview) return undefined;
+	try {
+		const canonical = canonicalFileUrl(preview);
+		return canonical === canonicalFileUrl(metadata.fileUrl) ? undefined : canonical;
+	} catch {
+		return undefined;
+	}
+}
+
 function snapshotOf(metadata: PostMetadata) {
+	const previewUrl = snapshotPreviewUrl(metadata);
 	return JSON.stringify({
 		source: metadata.source,
 		remoteId: metadata.remoteId,
@@ -67,6 +82,7 @@ function snapshotOf(metadata: PostMetadata) {
 		width: metadata.width,
 		height: metadata.height,
 		fileUrl: canonicalFileUrl(metadata.fileUrl),
+		...(previewUrl ? { previewUrl } : {}),
 		...(metadata.rating ? { rating: metadata.rating } : {})
 	});
 }
@@ -146,6 +162,8 @@ export type FavoritePost = {
 	width: number;
 	height: number;
 	availability: 'ready' | 'queued' | 'unavailable';
+	kind: 'image' | 'video';
+	mediaType: string;
 };
 
 type SavedRow = { id: string; source: string; snapshot: string };
@@ -184,13 +202,27 @@ function availabilityFor(db: AppDatabase, itemId: string): FavoritePost['availab
 	return 'queued';
 }
 
+function mediaKind(fileUrl: string): FavoritePost['kind'] {
+	return isVideoFile(fileUrl) ? 'video' : 'image';
+}
+
+function mediaType(fileUrl: string) {
+	try {
+		return mediaTypeForPath(new URL(fileUrl).pathname);
+	} catch {
+		return mediaTypeForPath(fileUrl);
+	}
+}
+
 export function presentSavedPost(db: AppDatabase, row: SavedRow): FavoritePost {
 	const snapshot = JSON.parse(row.snapshot) as {
 		tags?: unknown;
 		width?: unknown;
 		height?: unknown;
+		fileUrl?: unknown;
 	};
 	const names = tagNames(row.snapshot);
+	const fileUrl = typeof snapshot.fileUrl === 'string' ? snapshot.fileUrl : '';
 	return {
 		id: row.id,
 		tags: names.join(' '),
@@ -198,7 +230,9 @@ export function presentSavedPost(db: AppDatabase, row: SavedRow): FavoritePost {
 		src: `/api/library/originals/${row.id}`,
 		width: Number(snapshot.width ?? 0),
 		height: Number(snapshot.height ?? 0),
-		availability: availabilityFor(db, row.id)
+		availability: availabilityFor(db, row.id),
+		kind: mediaKind(fileUrl),
+		mediaType: mediaType(fileUrl)
 	};
 }
 

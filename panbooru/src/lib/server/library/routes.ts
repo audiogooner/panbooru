@@ -95,6 +95,24 @@ function localPath(dataDir: string, relativePath: string) {
 	return join(dataDir, relativePath);
 }
 
+function isVideoSavedItem(services: AppServices, itemId: string) {
+	const row = services.db.$client
+		.prepare(
+			`select post_snapshots.snapshot as snapshot
+			 from saved_items
+			 join post_snapshots on post_snapshots.id = saved_items.snapshot_id
+			 where saved_items.id = ?`
+		)
+		.get(itemId) as { snapshot: string } | undefined;
+	if (!row) return false;
+	try {
+		const parsed = JSON.parse(row.snapshot) as { fileUrl?: unknown };
+		return typeof parsed.fileUrl === 'string' && isVideoFile(parsed.fileUrl);
+	} catch {
+		return false;
+	}
+}
+
 async function readMetadata(request: Request, services: AppServices): Promise<PostMetadata | null> {
 	const body = (await request.json().catch(() => null)) as {
 		remoteId?: unknown;
@@ -123,6 +141,7 @@ async function readMetadata(request: Request, services: AppServices): Promise<Po
 			width?: unknown;
 			height?: unknown;
 			fileUrl?: unknown;
+			previewUrl?: unknown;
 			rating?: unknown;
 		};
 		const tags = Array.isArray(snapshot.tags)
@@ -133,6 +152,8 @@ async function readMetadata(request: Request, services: AppServices): Promise<Po
 		if (typeof snapshot.remoteId !== 'string' || typeof snapshot.fileUrl !== 'string') return null;
 		if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
 		const rating = typeof snapshot.rating === 'string' ? snapshot.rating : '';
+		const previewUrl =
+			typeof snapshot.previewUrl === 'string' && snapshot.previewUrl ? snapshot.previewUrl : '';
 		return {
 			source: typeof snapshot.source === 'string' ? snapshot.source : 'gelbooru',
 			remoteId: snapshot.remoteId,
@@ -140,6 +161,7 @@ async function readMetadata(request: Request, services: AppServices): Promise<Po
 			width,
 			height,
 			fileUrl: snapshot.fileUrl,
+			...(previewUrl ? { previewUrl } : {}),
 			...(rating ? { rating } : {})
 		};
 	}
@@ -151,7 +173,9 @@ async function readMetadata(request: Request, services: AppServices): Promise<Po
 	const width = Number(body?.width);
 	const height = Number(body?.height);
 	const rating = typeof body?.rating === 'string' ? body.rating.trim() : '';
-	const fileUrl = services.media.get(mediaRef)?.fileUrl ?? '';
+	const target = services.media.get(mediaRef);
+	const fileUrl = target?.fileUrl ?? '';
+	const previewUrl = target?.previewUrl?.trim() ?? '';
 	if (!remoteId || !fileUrl || !Number.isFinite(width) || !Number.isFinite(height)) return null;
 	return {
 		source: 'gelbooru',
@@ -160,6 +184,7 @@ async function readMetadata(request: Request, services: AppServices): Promise<Po
 		width,
 		height,
 		fileUrl,
+		...(previewUrl ? { previewUrl } : {}),
 		...(rating ? { rating } : {})
 	};
 }
@@ -550,6 +575,10 @@ export async function handleLibrary(
 		if (!download && url.searchParams.get('recipe') === 'thumb') {
 			const thumb = await serveStoredThumb(request, services, itemId, path);
 			if (thumb) return thumb;
+			// Never feed a video original to <img> thumbs — that blows out the grid.
+			if (row.mime?.startsWith('video/') || isVideoSavedItem(services, itemId)) {
+				return jsonError('NOT_FOUND', 'Thumb is not available', 404);
+			}
 		}
 		const streamed = fileMediaResponse(
 			path,

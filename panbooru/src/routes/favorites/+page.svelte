@@ -119,7 +119,9 @@
 			width: item.width,
 			height: item.height,
 			tags: item.tags.split(/\s+/).filter(Boolean),
-			mediaRef: item.id
+			mediaRef: item.id,
+			kind: item.kind,
+			mediaType: item.mediaType
 		};
 	}
 
@@ -135,7 +137,9 @@
 
 	function onTileClick(id: string, event: MouseEvent) {
 		const result = galleryClick(selectionKey, id, orderedIds, event);
-		if (result === 'open') openId = id;
+		if (result === 'open' && tiles.find((item) => item.id === id)?.availability === 'ready') {
+			openId = id;
+		}
 	}
 
 	function onTileDrag(event: DragEvent, item: (typeof tiles)[number]) {
@@ -370,6 +374,9 @@
 											/>
 										</svg>
 									{/if}
+									{#if post.kind === 'video'}
+										<span class="kind"><Icon name="film" /></span>
+									{/if}
 									<div class="tile-actions">
 										<button
 											type="button"
@@ -461,6 +468,12 @@
 		gap: 4px;
 	}
 
+	.post {
+		flex: none;
+		min-width: 0;
+		overflow: hidden;
+	}
+
 	.tile {
 		position: relative;
 		overflow: hidden;
@@ -504,6 +517,16 @@
 
 	.tile.selected .selection-badge {
 		display: grid;
+	}
+
+	.kind {
+		position: absolute;
+		bottom: 7px;
+		left: 7px;
+		z-index: 2;
+		color: white;
+		pointer-events: none;
+		--icon-size: 16px;
 	}
 
 	.missing {

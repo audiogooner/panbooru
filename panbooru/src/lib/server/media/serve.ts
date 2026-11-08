@@ -55,7 +55,21 @@ export async function serveStoredThumb(
 	}
 	const cached = await cachedDerivativeResponse(request, services, identity, recipeNames.thumb);
 	if (cached) return cached;
-	if (isVideoFile(fileUrl)) return null;
+	if (isVideoFile(fileUrl)) {
+		const target = targetFromSavedItem(services, itemId);
+		const preview = target?.previewUrl?.trim() ?? '';
+		if (!preview || preview === target?.fileUrl || isVideoFile(preview)) return null;
+		try {
+			const bytes = await readSourceBytes(services, preview);
+			if (bytes.length > imageLimit) return null;
+			const rendered = await renderDerivative(bytes, recipeNames.thumb);
+			await persistDerivative(services, identity, recipeNames.thumb, rendered);
+			return derivativeBytesResponse(request, rendered);
+		} catch (error) {
+			services.log(error instanceof Error ? error.message : 'stored video thumb failed');
+			return null;
+		}
+	}
 	try {
 		const info = await stat(absolutePath);
 		if (info.size > imageLimit) return null;

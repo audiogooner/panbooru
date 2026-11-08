@@ -492,6 +492,7 @@ function metadataFromSnapshot(snapshot: string): PostMetadata | null {
 		width?: unknown;
 		height?: unknown;
 		fileUrl?: unknown;
+		previewUrl?: unknown;
 		rating?: unknown;
 	};
 	try {
@@ -507,6 +508,8 @@ function metadataFromSnapshot(snapshot: string): PostMetadata | null {
 	if (typeof parsed.remoteId !== 'string' || typeof parsed.fileUrl !== 'string') return null;
 	if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
 	const rating = typeof parsed.rating === 'string' && parsed.rating ? parsed.rating : undefined;
+	const previewUrl =
+		typeof parsed.previewUrl === 'string' && parsed.previewUrl ? parsed.previewUrl : undefined;
 	return {
 		source: typeof parsed.source === 'string' ? parsed.source : 'gelbooru',
 		remoteId: parsed.remoteId,
@@ -514,6 +517,7 @@ function metadataFromSnapshot(snapshot: string): PostMetadata | null {
 		width,
 		height,
 		fileUrl: parsed.fileUrl,
+		...(previewUrl ? { previewUrl } : {}),
 		...(rating ? { rating } : {})
 	};
 }
