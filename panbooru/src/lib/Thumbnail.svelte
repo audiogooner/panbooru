@@ -92,6 +92,11 @@
 		line-height: 0;
 	}
 
+	.thumb.intrinsic .sharp {
+		height: auto;
+		max-width: none;
+	}
+
 	.preview {
 		position: absolute;
 		inset: -28%;

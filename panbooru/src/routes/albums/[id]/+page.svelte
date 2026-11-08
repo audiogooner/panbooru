@@ -2,10 +2,12 @@
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import AlbumPicker from '#lib/AlbumPicker.svelte';
+	import Icon from '#lib/Icon.svelte';
 	import SearchField from '#lib/SearchField.svelte';
 	import Thumbnail from '#lib/Thumbnail.svelte';
 	import Viewer from '#lib/Viewer.svelte';
 	import { queryFromTag } from '#lib/explore.svelte.ts';
+	import { justifyRows } from '#lib/justify.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
 	import {
@@ -30,6 +32,8 @@
 
 	let { data }: PageProps = $props();
 	let suggestions = $state<{ name: string; count: number }[]>([]);
+	let galleryWidth = $state(960);
+	let rowHeight = $state(190);
 	let confirming = $state(false);
 	let openId = $state<string | null>(null);
 	let actionError = $state('');
@@ -39,11 +43,19 @@
 		whole: boolean;
 	} | null>(null);
 	let selectionKey = $derived(`album:${data.album.id}`);
-	let orderedIds = $derived(data.posts.map((item) => item.id));
+	let tiles = $derived(
+		data.posts.map((item) => ({
+			...item,
+			width: item.width > 0 ? item.width : 190,
+			height: item.height > 0 ? item.height : 190
+		}))
+	);
+	let rows = $derived(justifyRows(tiles, Math.max(galleryWidth, 320), rowHeight));
+	let orderedIds = $derived(tiles.map((post) => post.id));
 	let selection = $derived(selectionSnapshot(selectionKey));
 	let selecting = $derived(selection.active);
 	let selectedCount = $derived(selectedIds(selectionKey, orderedIds).length);
-	let openPost = $derived(data.posts.find((item) => item.id === openId) ?? null);
+	let openPost = $derived(tiles.find((item) => item.id === openId) ?? null);
 	const collectionFilters = {
 		rating: ['General', 'Sensitive', 'Questionable', 'Explicit'],
 		media: ['Images', 'Animated images', 'Videos']
@@ -68,7 +80,14 @@
 		if (query.trim() !== data.query.trim()) leaveSelection(selectionKey);
 	});
 
-	function toDrag(item: (typeof data.posts)[number]): DragPost {
+	function measureRow() {
+		const value = Number.parseFloat(
+			getComputedStyle(document.documentElement).getPropertyValue('--row')
+		);
+		if (Number.isFinite(value) && value > 0) rowHeight = value;
+	}
+
+	function toDrag(item: (typeof tiles)[number]): DragPost {
 		return {
 			remoteId: item.id,
 			itemId: item.id,
@@ -100,7 +119,7 @@
 		await goto(resolve(`albums/${data.album.id}?${new URLSearchParams({ q: draft })}`));
 	}
 
-	function asPost(item: (typeof data.posts)[number]): ExplorationPost {
+	function asPost(item: (typeof tiles)[number]): ExplorationPost {
 		return {
 			id: item.id,
 			width: item.width,
@@ -297,7 +316,7 @@
 					return;
 				}
 				openAlbumPicker(
-					data.posts.filter((item) => isSelected(selectionKey, item.id)).map(toDrag),
+					tiles.filter((item) => isSelected(selectionKey, item.id)).map(toDrag),
 					anchor,
 					false
 				);
@@ -317,35 +336,56 @@
 	{:else if data.posts.length === 0}
 		<p>No results</p>
 	{:else}
-		<ul class="saved">
-			{#each data.posts as item (item.id)}
-				<li>
-					{#if item.availability === 'unavailable'}
-						<p>Unavailable</p>
-					{:else if item.availability === 'ready'}
-						<button
-							type="button"
-							class={['tile', isSelected(selectionKey, item.id) && 'selected']}
-							onclick={(event) => onTileClick(item.id, event)}
-						>
-							<Thumbnail
-								src={`${item.src}?recipe=thumb`}
-								alt={item.tags}
-								width={item.width}
-								height={item.height}
-								fit="intrinsic"
-							/>
-						</button>
-					{/if}
-					<button type="button" onclick={() => removeIds([item.id])}>Remove from album</button>
-				</li>
+		<div class="gallery" bind:clientWidth={galleryWidth} {@attach measureRow}>
+			{#each rows as row, index (index)}
+				<div class="row">
+					{#each row as post (post.id)}
+						<div class="post" style:width="{post.width}px">
+							<div
+								class={['tile', isSelected(selectionKey, post.id) && 'selected']}
+								style:height="{post.height}px"
+								data-post={post.id}
+							>
+								<span class="selection-badge" aria-hidden="true"><Icon name="check" /></span>
+								<button
+									type="button"
+									class="open"
+									aria-label="Open image"
+									onclick={(event) => onTileClick(post.id, event)}
+								></button>
+								{#if post.availability === 'unavailable'}
+									<p class="missing">Unavailable</p>
+								{:else if post.availability === 'ready'}
+									<Thumbnail
+										src={`${post.src}?recipe=thumb`}
+										alt={post.tags}
+										width={Math.round(post.width)}
+										height={Math.round(post.height)}
+										draggable={false}
+									/>
+								{/if}
+								<button
+									type="button"
+									class="tile-action"
+									aria-label="Remove from album"
+									onclick={(event) => {
+										event.stopPropagation();
+										void removeIds([post.id]);
+									}}
+								>
+									<Icon name="trash" />
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
 			{/each}
-		</ul>
+		</div>
 	{/if}
 	{#if openPost}
 		<Viewer
 			post={asPost(openPost)}
-			posts={data.posts.filter((item) => item.availability === 'ready').map(asPost)}
+			posts={tiles.filter((item) => item.availability === 'ready').map(asPost)}
 			imageSrc={openPost.src}
 			collection="album"
 			albumId={data.album.id}
@@ -380,34 +420,89 @@
 </main>
 
 <style>
-	.saved {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
+	.notice {
 		margin: 0;
-		padding: 0;
-		list-style: none;
+		color: #ef9ba7;
 	}
 
-	li {
+	.gallery {
 		display: grid;
-		gap: 8px;
-		justify-items: start;
+		gap: 4px;
+	}
+
+	.row {
+		display: flex;
+		gap: 4px;
 	}
 
 	.tile {
 		position: relative;
+		overflow: hidden;
 		border: 0;
+		border-radius: 17px;
+		background: #191e25;
+	}
+
+	.tile.selected {
+		box-shadow: inset 0 0 0 3px #bfd3f5;
+	}
+
+	.open {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
 		padding: 0;
+		border: 0;
 		background: transparent;
 	}
 
-	.tile.selected :global(.thumb) {
-		filter: brightness(0.68);
+	.selection-badge {
+		display: none;
+		position: absolute;
+		top: 9px;
+		left: 9px;
+		z-index: 2;
+		width: 20px;
+		height: 20px;
+		place-items: center;
+		border-radius: 50%;
+		background: #bfd3f5;
+		color: #172238;
+		--icon-size: 12px;
 	}
 
-	.notice {
+	.tile.selected .selection-badge {
+		display: grid;
+	}
+
+	.missing {
+		display: grid;
+		height: 100%;
 		margin: 0;
-		color: #ef9ba7;
+		place-items: center;
+		color: #8c94a4;
+	}
+
+	@supports (corner-shape: squircle) {
+		.tile {
+			border-radius: 23px;
+			corner-shape: squircle;
+		}
+	}
+
+	.tile-action {
+		position: absolute;
+		top: 7px;
+		right: 7px;
+		z-index: 4;
+		display: grid;
+		place-items: center;
+		width: 29px;
+		height: 29px;
+		padding: 0;
+		border: 0;
+		border-radius: 9px;
+		background: #10131c9c;
+		color: #c9d0dc;
 	}
 </style>
