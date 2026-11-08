@@ -83,6 +83,7 @@
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
 	let albumPickerFor = $state<string | null>(null);
+	let albumButton = $state<HTMLElement | null>(null);
 	let root = $state<HTMLElement | null>(null);
 	let viewportWidth = $state(1);
 	let viewportHeight = $state(1);
@@ -321,12 +322,6 @@
 	function toggleAlbumPicker() {
 		albumPickerFor = albumPickerOpen ? null : post.id;
 		revealChrome();
-	}
-
-	function onViewerClick(event: MouseEvent) {
-		const target = event.target;
-		if (!(target instanceof Element)) return;
-		if (!target.closest('.album-picker, [data-album-picker]')) albumPickerFor = null;
 	}
 
 	function startResize(event: PointerEvent) {
@@ -841,12 +836,7 @@
 	});
 </script>
 
-<svelte:window
-	{onkeydown}
-	onpointermove={revealChrome}
-	onfocusin={revealChrome}
-	onclick={onViewerClick}
-/>
+<svelte:window {onkeydown} onpointermove={revealChrome} onfocusin={revealChrome} />
 
 <div
 	class={[
@@ -1059,6 +1049,7 @@
 			aria-pressed={albumPickerOpen}
 			title="Album selector · S"
 			data-album-picker={albumPickerOpen ? 'open' : 'closed'}
+			bind:this={albumButton}
 			onclick={toggleAlbumPicker}
 		>
 			<Icon name="book-image" />
@@ -1103,14 +1094,15 @@
 			<Icon name="panel" />
 		</button>
 	</div>
-	<div class="album-picker popup" data-album-picker-panel="hook" hidden={!albumPickerOpen}>
-		<h3>Albums</h3>
-		{#if albumPickerOpen}
-			{#key post.id}
-				<AlbumPicker posts={[dragPost]} />
-			{/key}
-		{/if}
-	</div>
+	{#if albumPickerOpen}
+		{#key post.id}
+			<AlbumPicker
+				posts={[dragPost]}
+				anchor={albumButton}
+				onclose={() => (albumPickerFor = null)}
+			/>
+		{/key}
+	{/if}
 	{#if tagsOpen}
 		<aside class="right-panel">
 			{#key post.id}
@@ -1383,13 +1375,6 @@
 
 	.departure.leaving {
 		animation: viewer-depart 480ms cubic-bezier(0.2, 0.65, 0.3, 1) forwards;
-	}
-
-	.album-picker {
-		position: absolute;
-		z-index: 30;
-		top: 64px;
-		left: 24px;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

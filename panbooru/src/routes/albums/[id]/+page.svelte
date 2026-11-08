@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import AlbumPicker from '#lib/AlbumPicker.svelte';
 	import SearchField from '#lib/SearchField.svelte';
 	import Thumbnail from '#lib/Thumbnail.svelte';
 	import Viewer from '#lib/Viewer.svelte';
@@ -8,8 +9,6 @@
 	import type { ExplorationPost } from '#lib/navigation.ts';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
 	import {
-		applyAlbumChoice,
-		createAlbumRequest,
 		deselectAll as clearSelection,
 		exitSelection as leaveSelection,
 		exportRequest,
@@ -17,7 +16,6 @@
 		galleryClick,
 		importRequest,
 		isSelected,
-		loadAlbumChoices,
 		saveDownload,
 		selectLoaded,
 		selectedIds,
@@ -37,16 +35,9 @@
 	let actionError = $state('');
 	let albumPicker = $state<{
 		posts: DragPost[];
-		left: number;
-		top: number;
+		anchor: HTMLElement | null;
 		whole: boolean;
-		albums: { id: string; name: string }[];
-		memberships: { albumId: string; itemId: string }[];
 	} | null>(null);
-	let albumTitle = $state('');
-	let albumError = $state('');
-	let albumBusy = $state(false);
-	let albumToken = 0;
 	let selectionKey = $derived(`album:${data.album.id}`);
 	let orderedIds = $derived(data.posts.map((item) => item.id));
 	let selection = $derived(selectionSnapshot(selectionKey));
@@ -189,89 +180,12 @@
 	}
 
 	function hideAlbumPicker() {
-		albumToken += 1;
 		albumPicker = null;
 	}
 
-	function membershipCount(albumId: string) {
-		if (!albumPicker) return 0;
-		return new Set(
-			albumPicker.memberships.filter((item) => item.albumId === albumId).map((item) => item.itemId)
-		).size;
-	}
-
-	async function openAlbumPicker(posts: DragPost[], anchor: HTMLElement | null, whole: boolean) {
+	function openAlbumPicker(posts: DragPost[], anchor: HTMLElement | null, whole: boolean) {
 		if (!whole && !posts.length) return;
-		const token = ++albumToken;
-		const rect = anchor?.getBoundingClientRect();
-		albumTitle = '';
-		albumError = '';
-		albumPicker = {
-			posts,
-			left: rect?.left ?? 80,
-			top: (rect?.bottom ?? 64) + 8,
-			whole,
-			albums: [],
-			memberships: []
-		};
-		const loaded = await loadAlbumChoices(whole ? [] : posts);
-		if (token !== albumToken || !albumPicker || !loaded) return;
-		albumPicker.albums = loaded.albums;
-		albumPicker.memberships = loaded.memberships;
-	}
-
-	async function toggleListedAlbum(albumId: string) {
-		if (!albumPicker || albumPicker.whole || albumBusy) return;
-		albumBusy = true;
-		albumError = '';
-		const token = albumToken;
-		const posts = albumPicker.posts;
-		try {
-			const result = await applyAlbumChoice(albumId, posts, albumPicker.memberships);
-			if (result === 'add') playAdd();
-			else if (result === 'remove') playRemove();
-			else if (result === 'failed') albumError = 'Album could not be updated';
-			const loaded = await loadAlbumChoices(posts);
-			if (token === albumToken && albumPicker && loaded) {
-				albumPicker.albums = loaded.albums;
-				albumPicker.memberships = loaded.memberships;
-			}
-			await invalidateAll();
-		} finally {
-			albumBusy = false;
-		}
-	}
-
-	async function addQueryToAlbum(albumId: string) {
-		if (!albumPicker?.whole || albumBusy) return;
-		const body = importRequest(selectionKey, { operation: 'add', destination: 'album', albumId });
-		if (!body) return;
-		albumBusy = true;
-		albumError = '';
-		try {
-			const ok = await submitImport(body);
-			if (!ok) {
-				albumError = 'Album could not be updated';
-				return;
-			}
-			playAdd();
-			hideAlbumPicker();
-			await invalidateAll();
-		} finally {
-			albumBusy = false;
-		}
-	}
-
-	async function createFromPicker() {
-		if (!albumPicker || albumBusy) return;
-		const created = await createAlbumRequest(albumTitle);
-		if (!('id' in created)) {
-			albumError = created.message;
-			return;
-		}
-		albumTitle = '';
-		if (albumPicker.whole) await addQueryToAlbum(created.id);
-		else await toggleListedAlbum(created.id);
+		albumPicker = { posts, anchor, whole };
 	}
 
 	async function downloadSelection() {
@@ -344,20 +258,13 @@
 		}
 	}
 
-	function closeAlbumPicker(event: PointerEvent) {
-		if (!albumPicker) return;
-		const target = event.target;
-		if (target instanceof Element && target.closest('.album-picker, [data-action="add-album"]')) return;
-		hideAlbumPicker();
-	}
-
 	async function deleteAlbum() {
 		const response = await fetch(`/api/library/albums/${data.album.id}`, { method: 'DELETE' });
 		if (response.ok) await goto(resolve('/albums'));
 	}
 </script>
 
-<svelte:window {onkeydown} onpointerdown={closeAlbumPicker} />
+<svelte:window {onkeydown} />
 
 <main>
 	<h1>{data.album.name}</h1>
@@ -386,10 +293,10 @@
 			ondeselect={() => clearSelection(selectionKey)}
 			onalbum={(anchor) => {
 				if (selectionQuery(selectionKey)) {
-					void openAlbumPicker([], anchor, true);
+					openAlbumPicker([], anchor, true);
 					return;
 				}
-				void openAlbumPicker(
+				openAlbumPicker(
 					data.posts.filter((item) => isSelected(selectionKey, item.id)).map(toDrag),
 					anchor,
 					false
@@ -467,50 +374,13 @@
 		/>
 	{/if}
 	{#if albumPicker}
-		<div class="popup album-picker" style:left="{albumPicker.left}px" style:top="{albumPicker.top}px">
-			<h3>{albumPicker.whole ? 'Add matching posts' : 'Albums'}</h3>
-			{#each albumPicker.albums as album (album.id)}
-				{@const count = membershipCount(album.id)}
-				{@const total = albumPicker.posts.length}
-				{@const complete = count === total && total > 0}
-				{@const partial = count > 0 && count < total}
-				{#if albumPicker.whole}
-					<button type="button" class="menu-item" onclick={() => void addQueryToAlbum(album.id)}>
-						{album.name}
-					</button>
-				{:else}
-					<label>
-						<input
-							type="checkbox"
-							checked={complete}
-							onchange={() => void toggleListedAlbum(album.id)}
-							{@attach (node) => {
-								node.indeterminate = partial;
-								node.checked = complete;
-							}}
-						/>
-						{album.name}
-					</label>
-				{/if}
-			{:else}
-				<p class="muted">No albums yet</p>
-			{/each}
-			<form
-				onsubmit={(event) => {
-					event.preventDefault();
-					void createFromPicker();
-				}}
-			>
-				<input
-					bind:value={albumTitle}
-					aria-label="New album title"
-					placeholder="New album"
-					maxlength="80"
-				/>
-				<button type="submit">Create</button>
-			</form>
-			{#if albumError}<p class="notice" role="alert">{albumError}</p>{/if}
-		</div>
+		<AlbumPicker
+			posts={albumPicker.posts}
+			anchor={albumPicker.anchor}
+			whole={albumPicker.whole}
+			{selectionKey}
+			onclose={hideAlbumPicker}
+		/>
 	{/if}
 </main>
 

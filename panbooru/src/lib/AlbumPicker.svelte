@@ -1,53 +1,71 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import type { DragPost } from '#lib/selection.svelte.ts';
-
-	type AlbumChoice = { id: string; name: string };
-	type Membership = { albumId: string; itemId: string };
+	import {
+		applyAlbumChoice,
+		createAlbumRequest,
+		importRequest,
+		loadAlbumChoices,
+		submitImport,
+		type DragPost
+	} from '#lib/selection.svelte.ts';
+	import { playAdd, playRemove } from '#lib/sounds.ts';
 
 	let {
 		posts,
+		anchor = null,
+		whole = false,
+		selectionKey = '',
+		onclose,
 		oncreated
 	}: {
 		posts: DragPost[];
+		anchor?: HTMLElement | null;
+		whole?: boolean;
+		selectionKey?: string;
+		onclose?: () => void;
 		oncreated?: () => void;
 	} = $props();
 
-	let albums = $state<AlbumChoice[]>([]);
-	let memberships = $state<Membership[]>([]);
+	let albums = $state<{ id: string; name: string }[]>([]);
+	let memberships = $state<{ albumId: string; itemId: string }[]>([]);
 	let title = $state('');
 	let createError = $state('');
 	let busy = $state(false);
 
 	let postKey = $derived(posts.map((post) => post.remoteId || post.itemId).join('\n'));
 
+	function place(node: HTMLElement) {
+		const padding = 12;
+		const gap = 8;
+		const width = node.offsetWidth;
+		const height = node.offsetHeight;
+		const rect = anchor?.getBoundingClientRect();
+		const preferredLeft = rect?.left ?? 80;
+		const preferredTop = (rect?.bottom ?? 64) + gap;
+		const left = Math.max(padding, Math.min(preferredLeft, window.innerWidth - width - padding));
+		const top =
+			preferredTop + height + padding > window.innerHeight
+				? Math.max(padding, (rect?.top ?? preferredTop) - height - gap)
+				: preferredTop;
+		node.style.left = `${left}px`;
+		node.style.top = `${top}px`;
+	}
+
 	function loadAlbums(node: HTMLElement) {
-		void node;
+		place(node);
 		const key = postKey;
 		const controller = new AbortController();
-		void refresh(key, controller.signal);
+		void refresh(key, controller.signal).then(() => {
+			if (!controller.signal.aborted) place(node);
+		});
 		return () => controller.abort();
 	}
 
 	async function refresh(key: string, signal: AbortSignal) {
-		const list = await fetch('/api/library/albums', { signal });
-		if (!list.ok || signal.aborted || key !== postKey) return;
-		const body = (await list.json()) as { data?: { albums?: AlbumChoice[] } };
-		albums = body.data?.albums ?? [];
-		const found: Membership[] = [];
-		await Promise.all(
-			posts.map(async (post) => {
-				const params = new URLSearchParams();
-				if (post.itemId && !post.mediaRef) params.set('itemId', post.itemId);
-				else if (post.remoteId) params.set('remoteId', post.remoteId);
-				else return;
-				const response = await fetch(`/api/library/albums/membership?${params}`, { signal });
-				if (!response.ok || signal.aborted) return;
-				const payload = (await response.json()) as { data?: { memberships?: Membership[] } };
-				found.push(...(payload.data?.memberships ?? []));
-			})
-		);
-		if (!signal.aborted && key === postKey) memberships = found;
+		const loaded = await loadAlbumChoices(whole ? [] : posts, signal);
+		if (!loaded || signal.aborted || key !== postKey) return;
+		albums = loaded.albums;
+		memberships = loaded.memberships;
 	}
 
 	function countIn(albumId: string) {
@@ -57,44 +75,15 @@
 		return ids.size;
 	}
 
-	function payload(post: DragPost) {
-		if (post.itemId && !post.mediaRef) return { itemId: post.itemId };
-		return {
-			remoteId: post.remoteId,
-			tags: post.tags,
-			width: post.width,
-			height: post.height,
-			...(post.mediaRef ? { mediaRef: post.mediaRef } : {}),
-			...(post.rating ? { rating: post.rating } : {})
-		};
-	}
-
 	async function toggle(albumId: string) {
-		if (busy) return;
+		if (busy || whole) return;
 		busy = true;
+		createError = '';
 		try {
-			const present = countIn(albumId);
-			if (present === posts.length && posts.length > 0) {
-				const rows = memberships.filter((item) => item.albumId === albumId);
-				await Promise.all(
-					rows.map((row) =>
-						fetch(
-							`/api/library/albums/${encodeURIComponent(albumId)}/items/${encodeURIComponent(row.itemId)}`,
-							{ method: 'DELETE' }
-						)
-					)
-				);
-			} else {
-				await Promise.all(
-					posts.map((post) =>
-						fetch(`/api/library/albums/${encodeURIComponent(albumId)}/items`, {
-							method: 'POST',
-							headers: { 'content-type': 'application/json' },
-							body: JSON.stringify(payload(post))
-						})
-					)
-				);
-			}
+			const result = await applyAlbumChoice(albumId, posts, memberships);
+			if (result === 'add') playAdd();
+			else if (result === 'remove') playRemove();
+			else if (result === 'failed') createError = 'Album could not be updated';
 			await refresh(postKey, new AbortController().signal);
 			await invalidateAll();
 		} finally {
@@ -102,54 +91,86 @@
 		}
 	}
 
-	async function createAlbum() {
-		const name = title.trim();
-		if (!name) {
-			createError = 'Enter a title.';
-			return;
-		}
+	async function addQuery(albumId: string) {
+		if (!whole || busy || !selectionKey) return;
+		const body = importRequest(selectionKey, { operation: 'add', destination: 'album', albumId });
+		if (!body) return;
 		busy = true;
 		createError = '';
 		try {
-			const response = await fetch('/api/library/albums', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ name })
-			});
-			const body = (await response.json().catch(() => null)) as {
-				data?: { id?: string };
-				message?: string;
-			} | null;
-			if (!response.ok || !body?.data?.id) {
-				createError = body?.message ?? 'Album could not be created';
+			const ok = await submitImport(body);
+			if (!ok) {
+				createError = 'Album could not be updated';
 				return;
 			}
-			title = '';
-			await toggle(body.data.id);
-			oncreated?.();
+			playAdd();
+			onclose?.();
+			await invalidateAll();
 		} finally {
 			busy = false;
 		}
 	}
+
+	async function createAlbum() {
+		if (busy) return;
+		const created = await createAlbumRequest(title);
+		if (!('id' in created)) {
+			createError = created.message;
+			return;
+		}
+		const albumId = created.id;
+		if (!albumId) {
+			createError = 'Album could not be created';
+			return;
+		}
+		title = '';
+		createError = '';
+		if (whole) await addQuery(albumId);
+		else await toggle(albumId);
+		oncreated?.();
+	}
+
+	function onPointer(event: PointerEvent) {
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		if (target.closest('.album-picker, [data-album-picker], [data-action="add-album"]')) return;
+		onclose?.();
+	}
+
+	function onKey(event: KeyboardEvent) {
+		if (event.key !== 'Escape') return;
+		event.preventDefault();
+		event.stopPropagation();
+		onclose?.();
+	}
 </script>
 
-<div class="picker" {@attach loadAlbums}>
+<svelte:window onpointerdown={onPointer} onkeydown={onKey} />
+
+<div class="popup album-picker" data-album-picker-panel {@attach loadAlbums}>
+	<h3>{whole ? 'Add matching posts' : 'Albums'}</h3>
 	{#each albums as album (album.id)}
 		{@const count = countIn(album.id)}
-		{@const whole = count === posts.length && posts.length > 0}
+		{@const complete = count === posts.length && posts.length > 0}
 		{@const partial = count > 0 && count < posts.length}
-		<label>
-			<input
-				type="checkbox"
-				checked={whole}
-				onchange={() => toggle(album.id)}
-				{@attach (node) => {
-					node.indeterminate = partial;
-					node.checked = whole;
-				}}
-			/>
-			{album.name}
-		</label>
+		{#if whole}
+			<button type="button" class="menu-item" onclick={() => void addQuery(album.id)}>
+				{album.name}
+			</button>
+		{:else}
+			<label>
+				<input
+					type="checkbox"
+					checked={complete}
+					onchange={() => void toggle(album.id)}
+					{@attach (node) => {
+						node.indeterminate = partial;
+						node.checked = complete;
+					}}
+				/>
+				{album.name}
+			</label>
+		{/if}
 	{:else}
 		<p class="muted">No albums yet</p>
 	{/each}
@@ -171,29 +192,16 @@
 </div>
 
 <style>
-	.picker {
+	.album-picker {
 		display: grid;
 		gap: 2px;
 		min-width: 220px;
-	}
-
-	label {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 6px 4px;
 	}
 
 	form {
 		display: flex;
 		gap: 6px;
 		margin-top: 8px;
-	}
-
-	input[type='checkbox'] {
-		width: 16px;
-		height: 16px;
-		margin: 0;
 	}
 
 	form input {
@@ -213,13 +221,8 @@
 		color: inherit;
 	}
 
-	.muted,
 	.error {
 		margin: 4px;
-		color: #8d98ac;
-	}
-
-	.error {
 		color: #ef9ba7;
 	}
 </style>
