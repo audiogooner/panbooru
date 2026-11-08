@@ -366,17 +366,19 @@
 											/>
 										{/if}
 									</button>
-									<button
-										type="button"
-										class="tile-action"
-										aria-label="Remove from album"
-										onclick={(event) => {
-											event.stopPropagation();
-											void removeIds([post.id]);
-										}}
-									>
-										<Icon name="trash" />
-									</button>
+									<div class="tile-actions">
+										<button
+											type="button"
+											class="tile-action"
+											aria-label="Remove from album"
+											onclick={(event) => {
+												event.stopPropagation();
+												void removeIds([post.id]);
+											}}
+										>
+											<Icon name="trash" />
+										</button>
+									</div>
 								</div>
 							</div>
 						{/each}
@@ -505,11 +507,22 @@
 		}
 	}
 
-	.tile-action {
+	.tile-actions {
 		position: absolute;
 		top: 7px;
 		right: 7px;
 		z-index: 4;
+		display: flex;
+		gap: 5px;
+		opacity: 0;
+	}
+
+	.tile:hover .tile-actions,
+	.tile:focus-within .tile-actions {
+		opacity: 1;
+	}
+
+	.tile-action {
 		display: grid;
 		place-items: center;
 		width: 29px;
@@ -519,5 +532,11 @@
 		border-radius: 9px;
 		background: #10131c9c;
 		color: #c9d0dc;
+		backdrop-filter: blur(12px);
+		--icon-size: 16px;
+	}
+
+	.tile-action:hover {
+		background: #292e3bd9;
 	}
 </style>

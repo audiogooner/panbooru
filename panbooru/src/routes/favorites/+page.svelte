@@ -354,17 +354,19 @@
 											/>
 										{/if}
 									</button>
-									<button
-										type="button"
-										class="tile-action hearted"
-										aria-label="Remove favorite"
-										onclick={(event) => {
-											event.stopPropagation();
-											void removeFavorite(post.id);
-										}}
-									>
-										<Icon name="heart" />
-									</button>
+									<div class="tile-actions">
+										<button
+											type="button"
+											class="tile-action"
+											aria-label="Remove from Favorites"
+											onclick={(event) => {
+												event.stopPropagation();
+												void removeFavorite(post.id);
+											}}
+										>
+											<Icon name="trash" />
+										</button>
+									</div>
 								</div>
 							</div>
 						{/each}
@@ -505,11 +507,22 @@
 		}
 	}
 
-	.tile-action {
+	.tile-actions {
 		position: absolute;
 		top: 7px;
 		right: 7px;
 		z-index: 4;
+		display: flex;
+		gap: 5px;
+		opacity: 0;
+	}
+
+	.tile:hover .tile-actions,
+	.tile:focus-within .tile-actions {
+		opacity: 1;
+	}
+
+	.tile-action {
 		display: grid;
 		place-items: center;
 		width: 29px;
@@ -518,13 +531,12 @@
 		border: 0;
 		border-radius: 9px;
 		background: #10131c9c;
+		color: #c9d0dc;
+		backdrop-filter: blur(12px);
+		--icon-size: 16px;
 	}
 
-	.hearted {
-		color: #ff899c;
-	}
-
-	.hearted :global(svg) {
-		fill: currentColor;
+	.tile-action:hover {
+		background: #292e3bd9;
 	}
 </style>
