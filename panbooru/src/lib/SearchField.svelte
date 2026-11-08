@@ -762,7 +762,7 @@
 		flex: none;
 		width: max-content;
 		transform-origin: top left;
-		animation: reveal 140ms ease;
+		animation: reveal 200ms cubic-bezier(0.33, 1, 0.68, 1);
 	}
 
 	.popup ul {
@@ -785,7 +785,7 @@
 	@keyframes reveal {
 		from {
 			opacity: 0;
-			transform: translateY(-4px) scale(0.96);
+			transform: translateY(-12px);
 		}
 	}
 
