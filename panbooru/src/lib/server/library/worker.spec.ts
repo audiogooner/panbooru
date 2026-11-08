@@ -228,6 +228,35 @@ describe('original download worker', () => {
 		expect(db.$client.prepare('select state from jobs').get()).toEqual({ state: 'succeeded' });
 	});
 
+	it('stores a ready video original when the upstream content type is video/mp4', async () => {
+		const { db, dataDir } = await database();
+		const video = Buffer.from('mp4-bytes');
+		saveFavorite(db, {
+			...metadata,
+			remoteId: '20',
+			fileUrl: 'https://cdn.fixture.test/images/a.mp4'
+		});
+		await runOriginalPass({
+			db,
+			dataDir,
+			now: 5_500,
+			fetchFile: async () =>
+				new Response(video, {
+					status: 200,
+					headers: {
+						'content-type': 'video/mp4',
+						'content-length': String(video.length)
+					}
+				})
+		});
+		expect(originals(dataDir)).toEqual([sha256(video)]);
+		expect(db.$client.prepare('select state, mime from media_objects').get()).toEqual({
+			state: 'ready',
+			mime: 'video/mp4'
+		});
+		expect(listFavorites(db)[0]?.availability).toBe('ready');
+	});
+
 	it('labels a deleted upstream file unavailable and does not download it again', async () => {
 		const { db, dataDir } = await database();
 		saveFavorite(db, metadata);

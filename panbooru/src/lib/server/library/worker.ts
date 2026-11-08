@@ -94,6 +94,12 @@ function markSucceeded(db: AppDatabase, id: string) {
 		.run(id);
 }
 
+function mediaMime(type: string) {
+	const mime = type.split(';')[0]?.trim().toLowerCase() ?? '';
+	if (mime.startsWith('image/') || mime.startsWith('video/')) return mime;
+	return null;
+}
+
 async function download(job: ClaimedJob, options: OriginalPassOptions) {
 	let response: Response;
 	try {
@@ -107,10 +113,10 @@ async function download(job: ClaimedJob, options: OriginalPassOptions) {
 		return;
 	}
 	const bytes = Buffer.from(await response.arrayBuffer());
-	const type = response.headers.get('content-type') ?? '';
+	const mime = mediaMime(response.headers.get('content-type') ?? '');
 	const lengthHeader = response.headers.get('content-length');
 	const expectedBytes = lengthHeader === null ? bytes.length : Number(lengthHeader);
-	if (!response.ok || !type.startsWith('image/') || !Number.isFinite(expectedBytes)) {
+	if (!response.ok || !mime || !Number.isFinite(expectedBytes)) {
 		markRetry(options.db, job.id, options.now, 'verification failed');
 		return;
 	}
@@ -121,7 +127,7 @@ async function download(job: ClaimedJob, options: OriginalPassOptions) {
 		dataDir: options.dataDir,
 		itemId: job.itemId,
 		body: bytes,
-		mime: type.split(';')[0]!.trim(),
+		mime,
 		expectedBytes,
 		expectedHash,
 		afterTempWrite: options.afterTempWrite
@@ -217,12 +223,25 @@ export function dismissOriginalJob(db: AppDatabase, id: string) {
 	return result.changes > 0;
 }
 
+function fetchOriginalFile(
+	services: CollectionImportContext,
+	url: string
+): Promise<Response> {
+	const headers = new Headers();
+	headers.set('referer', 'https://gelbooru.com/');
+	return services.fetchUpstream(new URL(url), {
+		method: 'GET',
+		headers,
+		redirect: 'manual'
+	});
+}
+
 export function runServiceOriginalPass(services: CollectionImportContext) {
 	const pending = runOriginalPass({
 		db: services.db,
 		dataDir: services.dataDir,
 		now: services.now(),
-		fetchFile: (url) => services.fetchUpstream(new URL(url))
+		fetchFile: (url) => fetchOriginalFile(services, url)
 	});
 	void pending.then(() => {
 		kickCollectionImports(services);
@@ -265,7 +284,7 @@ async function drainCollectionImports(services: CollectionImportContext) {
 				db: services.db,
 				dataDir: services.dataDir,
 				now: services.now(),
-				fetchFile: (url) => services.fetchUpstream(new URL(url))
+				fetchFile: (url) => fetchOriginalFile(services, url)
 			}).catch((error: unknown) => {
 				(services.log ?? (() => {}))(
 					error instanceof Error ? error.message : 'original worker failed'

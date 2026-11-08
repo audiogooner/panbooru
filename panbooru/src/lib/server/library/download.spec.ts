@@ -90,6 +90,81 @@ describe('background original download', () => {
 			.poll(async () => (await app.fetch(original, { headers: { cookie } })).status)
 			.toBe(200);
 	});
+
+	it('sends the gelbooru referer and accepts video originals', async () => {
+		const dataDir = await mkdtemp(join(tmpdir(), 'panbooru-download-video-'));
+		const video = Buffer.from('mp4-bytes');
+		const seen: Array<{ path: string; referer: string | null; redirect: string | undefined }> =
+			[];
+		const app = await startApp({
+			dataDir,
+			secretPath: join(dataDir, 'secrets', 'master.key'),
+			allowHosts: ['cdn.fixture.test'],
+			fetchUpstream: async (input, init) => {
+				seen.push({
+					path: input.pathname,
+					referer: init?.headers?.get('referer') ?? null,
+					redirect: init?.redirect
+				});
+				if (input.pathname.startsWith('/images/')) {
+					return new Response(video, {
+						status: 200,
+						headers: {
+							'content-type': 'video/mp4',
+							'content-length': String(video.length)
+						}
+					});
+				}
+				return new Response(
+					JSON.stringify({
+						post: [
+							{
+								id: 11,
+								tags: 'landscape sunset',
+								file_url: 'https://cdn.fixture.test/images/a.mp4',
+								width: 100,
+								height: 50,
+								rating: 'general'
+							}
+						]
+					}),
+					{ headers: { 'content-type': 'application/json' } }
+				);
+			}
+		});
+		cleanups.push(async () => {
+			await app.close();
+			await rm(dataDir, { recursive: true, force: true });
+		});
+
+		const cookie = await ownerCookie(app, dataDir);
+		const mediaRef = await searchMediaRef(app, cookie);
+		const saved = await app.fetch('/api/library/favorites', {
+			method: 'POST',
+			headers: { origin: app.origin, cookie, 'content-type': 'application/json' },
+			body: JSON.stringify({
+				remoteId: '11',
+				tags: ['landscape', 'sunset'],
+				width: 100,
+				height: 50,
+				mediaRef,
+				rating: 'general'
+			})
+		});
+		const body = (await saved.json()) as { data: { itemId: string } };
+		expect(saved.status).toBe(200);
+		const original = `/api/library/originals/${encodeURIComponent(body.data.itemId)}`;
+		await expect
+			.poll(async () => (await app.fetch(original, { headers: { cookie } })).status)
+			.toBe(200);
+		expect(seen.some((row) => row.path === '/images/a.mp4')).toBe(true);
+		expect(
+			seen.find((row) => row.path === '/images/a.mp4')
+		).toMatchObject({
+			referer: 'https://gelbooru.com/',
+			redirect: 'manual'
+		});
+	});
 });
 
 async function ownerCookie(app: RunningApp, dataDir: string) {

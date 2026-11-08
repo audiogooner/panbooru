@@ -39,7 +39,10 @@ export type CollectionImportContext = {
 	db: AppDatabase;
 	dataDir: string;
 	now: () => number;
-	fetchUpstream: (input: URL) => Promise<Response>;
+	fetchUpstream: (
+		input: URL,
+		init?: { method?: string; headers?: Headers; redirect?: RequestRedirect }
+	) => Promise<Response>;
 	log?: (line: string) => void;
 	fixtureOrigin?: string;
 	secretPath?: string;
