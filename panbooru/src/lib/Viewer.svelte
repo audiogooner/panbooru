@@ -452,12 +452,17 @@
 	}
 
 	function move(delta: number, keyboard = false) {
+		// Arrow keys can land while the viewer is closing. `post` is a live prop and
+		// is null in that window; reading the sequence would throw.
+		if (!post) return;
 		const next = sequence[index + delta];
 		if (!next) return;
+		// Commit the next post before local state. A local write can flush the keyed
+		// image immediately, and its load handler then runs before navigation updates.
+		onmove(next.id);
 		direction = delta;
 		albumPickerFor = null;
 		if (keyboard) hideChrome();
-		onmove(next.id);
 	}
 
 	function decodeUrl(src: string) {
@@ -511,7 +516,7 @@
 			instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : REVEAL_MS;
 		const apply = () => {
 			revealTimer = 0;
-			if (!alive || post.id !== id) return;
+			if (!alive || post?.id !== id) return;
 			previewCleared = id;
 			settledBackdrop = backdrop;
 		};
@@ -521,12 +526,25 @@
 
 	function markLoaded(event: Event) {
 		const image = event.currentTarget;
-		if (!(image instanceof HTMLImageElement) || image.dataset.post !== post.id) return;
-		const id = post.id;
+		if (!(image instanceof HTMLImageElement)) return;
+		const stamped = image.dataset.post;
+		if (!stamped) return;
+		// Firefox calls load/error synchronously from addEventListener when the
+		// picture is already complete. That happens inside the {#key} render, and
+		// `post` can already be null because the viewer is closing or the next
+		// post has not settled. Finish after this turn so the read cannot throw.
+		queueMicrotask(() => finishLoaded(image, stamped));
+	}
+
+	function finishLoaded(image: HTMLImageElement, stamped: string) {
+		const current = post;
+		if (!alive || !current || current.id !== stamped || image.dataset.post !== stamped) return;
+		const id = current.id;
 		const backdrop = blurBackdrop;
 		void (async () => {
 			await Promise.all([image.decode().catch(() => {}), decodeUrl(backdrop)]);
-			if (image.dataset.post !== id || post.id !== id) return;
+			const shown = post;
+			if (!alive || image.dataset.post !== id || !shown || shown.id !== id) return;
 			// Warm = already complete on attach (memory cache); else PerformanceResourceTiming.
 			// Prefer both image + backdrop hits; if backdrop timing is missing, trust the still.
 			const instant =
@@ -539,8 +557,8 @@
 					id,
 					src: foreground,
 					backdrop,
-					width: Math.max(post.width, 1),
-					height: Math.max(post.height, 1),
+					width: Math.max(shown.width, 1),
+					height: Math.max(shown.height, 1),
 					left,
 					top,
 					scale: zoom.scale
@@ -552,14 +570,17 @@
 
 	function markPreview(event: Event) {
 		const image = event.currentTarget;
-		if (!(image instanceof HTMLImageElement) || image.dataset.post !== post.id) return;
-		previewId = post.id;
+		const id = post?.id;
+		if (!id || !(image instanceof HTMLImageElement) || image.dataset.post !== id) return;
+		previewId = id;
 	}
 
 	function watchPreview(img: HTMLImageElement) {
 		void previewSrc;
-		if (img.complete && img.naturalWidth > 0 && img.dataset.post === post.id) {
-			previewId = post.id;
+		const id = post?.id;
+		if (!id) return;
+		if (img.complete && img.naturalWidth > 0 && img.dataset.post === id) {
+			previewId = id;
 		}
 	}
 
@@ -770,7 +791,7 @@
 			const response = await fetch(`/api/library/favorites/${encodeURIComponent(favoriteItemId)}`, {
 				method: 'DELETE'
 			});
-			if (!response.ok || post.id !== id) return;
+			if (!response.ok || post?.id !== id) return;
 			favoriteFor = '';
 			favoriteItemId = '';
 			return;
@@ -780,12 +801,12 @@
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify(payload)
 		});
-		if (!response.ok || post.id !== id) return;
+		if (!response.ok || post?.id !== id) return;
 		const body = (await response.json().catch(() => null)) as {
 			data?: { itemId?: string };
 		} | null;
 		const itemId = body?.data?.itemId;
-		if (!itemId || post.id !== id) return;
+		if (!itemId || post?.id !== id) return;
 		favoriteFor = id;
 		favoriteItemId = itemId;
 	}
@@ -809,7 +830,7 @@
 
 	async function lookupTags(id: string, names: string[], signal: AbortSignal) {
 		await ensureTagMeta(names, signal);
-		if (signal.aborted || post.id !== id) return;
+		if (signal.aborted || post?.id !== id) return;
 		tagMeta = readTagMeta(names);
 		tagMetaPost = id;
 	}
@@ -836,7 +857,7 @@
 		void (async () => {
 			try {
 				const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
-				if (!response.ok || controller.signal.aborted || post.id !== id) return;
+				if (!response.ok || controller.signal.aborted || post?.id !== id) return;
 				const header = response.headers.get('content-length');
 				const bytes = header == null ? NaN : Number(header);
 				if (!Number.isFinite(bytes) || bytes < 0) return;
@@ -897,14 +918,13 @@
 					ontimeupdate={trackVideo}
 					onerror={(event) => {
 						const node = event.currentTarget;
-						if (node instanceof HTMLVideoElement && node.dataset.post === post.id) {
-							const id = post.id;
-							const backdrop = blurBackdrop;
-							const instant = fromCacheUrl(backdrop);
-							reveal = { id, instant };
-							loadedId = id;
-							scheduleReveal(id, backdrop, instant);
-						}
+						const id = post?.id;
+						if (!id || !(node instanceof HTMLVideoElement) || node.dataset.post !== id) return;
+						const backdrop = blurBackdrop;
+						const instant = fromCacheUrl(backdrop);
+						reveal = { id, instant };
+						loadedId = id;
+						scheduleReveal(id, backdrop, instant);
 					}}
 				>
 					<track kind="captions" label="Captions" srclang="en" src="data:text/vtt,WEBVTT" />
