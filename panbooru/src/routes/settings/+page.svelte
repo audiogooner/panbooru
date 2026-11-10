@@ -900,6 +900,9 @@
 	}
 
 	.settings-nav a {
+		display: flex;
+		align-items: center;
+		width: 100%;
 		position: relative;
 		z-index: 1;
 		padding: 9px 11px;
