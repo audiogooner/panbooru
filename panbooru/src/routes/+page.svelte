@@ -8,6 +8,7 @@
 	import Thumbnail from '#lib/Thumbnail.svelte';
 	import Viewer from '#lib/Viewer.svelte';
 	import { scrollGalleryToPost } from '#lib/gallery-scroll.ts';
+	import { rectFromElement, type MorphRect } from '#lib/viewer-morph.ts';
 	import { warmExplorationPost } from '#lib/prefetch.ts';
 	import { warmTagMeta } from '#lib/tag-meta.ts';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
@@ -113,6 +114,7 @@
 		whole: boolean;
 	} | null>(null);
 	let downloadError = $state('');
+	let viewerOrigin = $state<MorphRect | null>(null);
 
 	let rows = $derived(justifyRows(activeView().posts, Math.max(galleryWidth, 320), rowHeight));
 	let currentPost = $derived(
@@ -917,7 +919,11 @@
 
 	function onTileClick(postId: string, event: MouseEvent) {
 		const result = galleryClick(selectionKey, postId, orderedIds, event);
-		if (result === 'open') showPost(postId);
+		if (result !== 'open') return;
+		const tile =
+			event.currentTarget instanceof HTMLElement ? event.currentTarget.closest('.tile') : null;
+		viewerOrigin = rectFromElement(tile);
+		showPost(postId);
 	}
 
 	function onTileDrag(event: DragEvent, post: ExplorationPost) {
@@ -1077,10 +1083,11 @@
 	</div>
 {/snippet}
 
-{#if viewing && currentPost}
+	{#if viewing && currentPost}
 	<Viewer
 		post={currentPost}
 		posts={activeView().posts}
+		origin={viewerOrigin}
 		onclose={hideViewer}
 		ontag={onTag}
 		onmove={showPost}

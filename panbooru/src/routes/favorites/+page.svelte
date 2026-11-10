@@ -8,6 +8,7 @@
 	import Viewer from '#lib/Viewer.svelte';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
 	import { scrollGalleryToPost } from '#lib/gallery-scroll.ts';
+	import { rectFromElement, type MorphRect } from '#lib/viewer-morph.ts';
 	import { justifyRows, selectionOutline, squirclePath, squircleRadius } from '#lib/justify.ts';
 	import { queryFromTag } from '#lib/explore.svelte.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
@@ -41,6 +42,7 @@
 	let rowHeight = $state(190);
 	let actionError = $state('');
 	let openId = $state<string | null>(null);
+	let viewerOrigin = $state<MorphRect | null>(null);
 	let albumPicker = $state<{
 		posts: DragPost[];
 		anchor: HTMLElement | null;
@@ -144,9 +146,11 @@
 
 	function onTileClick(id: string, event: MouseEvent) {
 		const result = galleryClick(selectionKey, id, orderedIds, event);
-		if (result === 'open' && tiles.find((item) => item.id === id)?.availability === 'ready') {
-			openId = id;
-		}
+		if (result !== 'open' || tiles.find((item) => item.id === id)?.availability !== 'ready') return;
+		const tile =
+			event.currentTarget instanceof HTMLElement ? event.currentTarget.closest('.tile') : null;
+		viewerOrigin = rectFromElement(tile);
+		openId = id;
 	}
 
 	function onTileDrag(event: DragEvent, item: (typeof tiles)[number]) {
@@ -411,6 +415,7 @@
 			posts={tiles.filter((item) => item.availability === 'ready').map(asPost)}
 			imageSrc={openPost.src}
 			collection="favorite"
+			origin={viewerOrigin}
 			onclose={() => (openId = null)}
 			ontag={(tag, event, anchor) => {
 				if (event.metaKey || event.ctrlKey || event.button === 1) {

@@ -8,6 +8,7 @@
 	import Viewer from '#lib/Viewer.svelte';
 	import { queryFromTag } from '#lib/explore.svelte.ts';
 	import { scrollGalleryToPost } from '#lib/gallery-scroll.ts';
+	import { rectFromElement, type MorphRect } from '#lib/viewer-morph.ts';
 	import { justifyRows, selectionOutline, squirclePath, squircleRadius } from '#lib/justify.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
@@ -37,6 +38,7 @@
 	let rowHeight = $state(190);
 	let confirming = $state(false);
 	let openId = $state<string | null>(null);
+	let viewerOrigin = $state<MorphRect | null>(null);
 	let actionError = $state('');
 	let albumPicker = $state<{
 		posts: DragPost[];
@@ -140,9 +142,11 @@
 
 	function onTileClick(id: string, event: MouseEvent) {
 		const result = galleryClick(selectionKey, id, orderedIds, event);
-		if (result === 'open' && tiles.find((item) => item.id === id)?.availability === 'ready') {
-			openId = id;
-		}
+		if (result !== 'open' || tiles.find((item) => item.id === id)?.availability !== 'ready') return;
+		const tile =
+			event.currentTarget instanceof HTMLElement ? event.currentTarget.closest('.tile') : null;
+		viewerOrigin = rectFromElement(tile);
+		openId = id;
 	}
 
 	async function removeIds(ids: string[]) {
@@ -424,6 +428,7 @@
 			imageSrc={openPost.src}
 			collection="album"
 			albumId={data.album.id}
+			origin={viewerOrigin}
 			onclose={() => (openId = null)}
 			ontag={(tag, event, anchor) => {
 				if (event.metaKey || event.ctrlKey || event.button === 1) {

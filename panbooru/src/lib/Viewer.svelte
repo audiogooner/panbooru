@@ -15,6 +15,12 @@
 	import { neighborPrefetch, withRecipe } from '#lib/prefetch.ts';
 	import { ensureTagMeta, missingTagNames, readTagMeta, type TagMeta } from '#lib/tag-meta.ts';
 	import {
+		MORPH_MS,
+		type MorphRect,
+		prefersReducedMotion,
+		readGalleryTileRect
+	} from '#lib/viewer-morph.ts';
+	import {
 		doubleClickZoom,
 		initialScale,
 		initialZoom,
@@ -60,7 +66,8 @@
 		albumId = '',
 		imageSrc = '',
 		onremoved,
-		onfilesize
+		onfilesize,
+		origin = null
 	}: {
 		post: ExplorationPost;
 		posts?: ExplorationPost[];
@@ -82,7 +89,20 @@
 		imageSrc?: string;
 		onremoved?: (id: string) => void;
 		onfilesize?: (bytes: number) => void;
+		origin?: MorphRect | null;
 	} = $props();
+	type MorphPhase = 'enter' | 'leave';
+	let morph = $state<{
+		phase: MorphPhase;
+		rect: MorphRect;
+		radius: number;
+		src: string;
+		live: boolean;
+	} | null>(null);
+	let veil = $state(0);
+	let enterStarted = false;
+	let closing = $state(false);
+	let morphTimer = 0;
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
 	let albumPickerFor = $state<string | null>(null);
@@ -241,6 +261,80 @@
 			: { width: frameWidth, height: viewportHeight };
 	}
 
+	function displayRect(): MorphRect | null {
+		if (viewportWidth < 1 || viewportHeight < 1) return null;
+		if (playableVideo) {
+			const fitArea = { width: viewportWidth, height: Math.max(1, viewportHeight - 84) };
+			const fit = initialZoom(image, fitArea);
+			const width = image.width * fit.scale;
+			const height = image.height * fit.scale;
+			return {
+				left: viewportWidth / 2 - width / 2,
+				top: fitArea.height / 2 - height / 2,
+				width,
+				height
+			};
+		}
+		return {
+			left,
+			top,
+			width: image.width * zoom.scale,
+			height: image.height * zoom.scale
+		};
+	}
+
+	function morphSrc() {
+		if (playableVideo) {
+			return withRecipe(mediaBase, imageSrc ? 'thumb' : 'display') || previewSrc;
+		}
+		if (loadedId === post.id) return foreground;
+		if (previewReady) return previewSrc;
+		return previewSrc;
+	}
+
+	function requestClose() {
+		if (closing) return;
+		if (document.fullscreenElement) void document.exitFullscreen();
+		if (prefersReducedMotion()) {
+			onclose();
+			return;
+		}
+		closing = true;
+		albumPickerFor = null;
+		hideChrome();
+		window.clearTimeout(morphTimer);
+		const from = displayRect();
+		const to = readGalleryTileRect(post.id);
+		if (!to || !from) {
+			veil = 1;
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					if (!alive) return;
+					veil = 0;
+				});
+			});
+			morphTimer = window.setTimeout(() => {
+				morphTimer = 0;
+				onclose();
+			}, 200);
+			return;
+		}
+		const src = morphSrc();
+		morph = { phase: 'leave', rect: from, radius: 0, src, live: false };
+		veil = 1;
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				if (!alive) return;
+				morph = { phase: 'leave', rect: to, radius: 14, src, live: true };
+				veil = 0;
+				morphTimer = window.setTimeout(() => {
+					morphTimer = 0;
+					onclose();
+				}, MORPH_MS + 32);
+			});
+		});
+	}
+
 	function remember(next: Zoom, announce = false) {
 		if (manual) manualZoom = next;
 		else {
@@ -356,6 +450,17 @@
 		);
 	}
 
+	function onTagClick(tag: string, event: MouseEvent) {
+		if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) {
+			ontag(tag, event, tagAnchor(event));
+		}
+	}
+
+	function onTagDoubleClick(tag: string, event: MouseEvent) {
+		if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
+		ontag(tag, event, tagAnchor(event));
+	}
+
 	function resizeDetails(event: KeyboardEvent) {
 		if (typing(event)) return;
 		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -409,9 +514,10 @@
 				void document.exitFullscreen();
 				return;
 			}
-			onclose();
+			requestClose();
 			return;
 		}
+		if (morph || closing) return;
 		if ((event.key === 'f' || event.key === 'F') && !typing(event)) {
 			event.preventDefault();
 			toggleFullscreen();
@@ -483,13 +589,13 @@
 		}, 480);
 		const next = sequence[index + 1] ?? sequence[index - 1];
 		if (next && next.id !== id) onmove(next.id);
-		else onclose();
+		else requestClose();
 	}
 
 	function move(delta: number, keyboard = false) {
 		// Arrow keys can land while the viewer is closing. `post` is a live prop and
 		// is null in that window; reading the sequence would throw.
-		if (!post) return;
+		if (!post || morph || closing) return;
 		const next = sequence[index + delta];
 		if (!next) return;
 		// Commit the next post before local state. A local write can flush the keyed
@@ -803,7 +909,9 @@
 			window.clearTimeout(chromeTimer);
 			window.clearTimeout(zoomTimer);
 			window.clearTimeout(revealTimer);
+			window.clearTimeout(morphTimer);
 			revealTimer = 0;
+			morphTimer = 0;
 			if (root === node) root = null;
 		};
 	}
@@ -904,6 +1012,42 @@
 		})();
 		return () => controller.abort();
 	});
+
+	$effect(() => {
+		void viewportWidth;
+		void viewportHeight;
+		void origin;
+		void post.id;
+		if (enterStarted || closing) return;
+		if (viewportWidth < 32 || viewportHeight < 32) return;
+		enterStarted = true;
+		const openOrigin = origin ?? null;
+		if (!openOrigin || prefersReducedMotion()) {
+			veil = 1;
+			return;
+		}
+		const to = displayRect();
+		if (!to) {
+			veil = 1;
+			return;
+		}
+		const src = morphSrc() || previewSrc;
+		morph = { phase: 'enter', rect: openOrigin, radius: 14, src, live: false };
+		veil = 0;
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				if (!alive || closing) return;
+				morph = { phase: 'enter', rect: to, radius: 0, src, live: true };
+				veil = 1;
+				window.clearTimeout(morphTimer);
+				morphTimer = window.setTimeout(() => {
+					morphTimer = 0;
+					if (!alive || closing) return;
+					morph = null;
+				}, MORPH_MS + 32);
+			});
+		});
+	});
 </script>
 
 <svelte:window {onkeydown} onpointermove={revealChrome} onfocusin={revealChrome} />
@@ -914,16 +1058,23 @@
 		{
 			'panel-open': tagsOpen,
 			'image-over-info': manual,
-			'hide-controls': chromeHidden
+			'hide-controls': chromeHidden,
+			morphing: morph !== null,
+			closing,
+			'media-hidden': morph !== null || closing,
+			entering: morph?.phase === 'enter',
+			leaving: morph?.phase === 'leave'
 		}
 	]}
 	style:--view-right={tagsOpen ? `${detailsWidth}px` : '0px'}
+	style:--veil={veil}
 	{@attach viewerRoot}
 	{@attach neighborPrefetch(sequence, post.id, direction, Boolean(imageSrc))}
 	bind:clientWidth={viewportWidth}
 	bind:clientHeight={viewportHeight}
 	{onwheel}
 >
+	<div class="veil" style:opacity={veil} aria-hidden="true"></div>
 	{#if settledBackdrop}
 		<img class="backdrop settled" src={settledBackdrop} alt="" aria-hidden="true" />
 	{/if}
@@ -933,6 +1084,19 @@
 		alt=""
 		aria-hidden="true"
 	/>
+	{#if morph}
+		<div
+			class={['morph-layer', morph.live && 'live', morph.phase]}
+			style:left="{morph.rect.left}px"
+			style:top="{morph.rect.top}px"
+			style:width="{morph.rect.width}px"
+			style:height="{morph.rect.height}px"
+			style:border-radius="{morph.radius}px"
+			aria-hidden="true"
+		>
+			<img src={morph.src} alt="" draggable="false" />
+		</div>
+	{/if}
 	{#if playableVideo}
 		{#key post.id}
 			<div class="player">
@@ -1107,7 +1271,7 @@
 		type="button"
 		aria-label="Back"
 		title="Back to gallery · Escape"
-		onclick={onclose}
+		onclick={requestClose}
 	>
 		<Icon name="left" />
 	</button>
@@ -1216,7 +1380,8 @@
 													type="button"
 													class="tag-row"
 													aria-label={tag.name}
-													onclick={(event) => ontag(tag.name, event, tagAnchor(event))}
+													onclick={(event) => onTagClick(tag.name, event)}
+													ondblclick={(event) => onTagDoubleClick(tag.name, event)}
 													onmousedown={preventTagMiddle}
 													onauxclick={(event) => onTagAux(tag.name, event)}
 													oncontextmenu={(event) => onTagMenu(tag.name, event)}
@@ -1264,6 +1429,76 @@
 		overflow: hidden;
 		background: #000;
 		color: #dddde3;
+	}
+
+	.viewer.morphing,
+	.viewer.closing {
+		background: transparent;
+	}
+
+	.veil {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		background: #000;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 420ms cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.morph-layer {
+		position: absolute;
+		z-index: 5;
+		overflow: hidden;
+		pointer-events: none;
+		will-change: left, top, width, height, border-radius;
+	}
+
+	.morph-layer.live {
+		transition:
+			left 420ms cubic-bezier(0.16, 1, 0.3, 1),
+			top 420ms cubic-bezier(0.16, 1, 0.3, 1),
+			width 420ms cubic-bezier(0.16, 1, 0.3, 1),
+			height 420ms cubic-bezier(0.16, 1, 0.3, 1),
+			border-radius 420ms cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.morph-layer img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.viewer.media-hidden .stage,
+	.viewer.media-hidden .player,
+	.viewer.media-hidden .unsupported,
+	.viewer.media-hidden .departure,
+	.viewer.media-hidden .throbber-slot {
+		opacity: 0 !important;
+		visibility: hidden;
+	}
+
+	.viewer.morphing .backdrop,
+	.viewer.closing .backdrop {
+		opacity: 0 !important;
+		transition: none !important;
+	}
+
+	.viewer.morphing .back,
+	.viewer.morphing .viewer-bar,
+	.viewer.morphing .edge-button,
+	.viewer.morphing .edge-zone,
+	.viewer.morphing .right-panel,
+	.viewer.morphing .bar,
+	.viewer.closing .back,
+	.viewer.closing .viewer-bar,
+	.viewer.closing .edge-button,
+	.viewer.closing .edge-zone,
+	.viewer.closing .right-panel,
+	.viewer.closing .bar {
+		opacity: 0;
+		pointer-events: none;
 	}
 
 	.backdrop {
@@ -1466,6 +1701,11 @@
 
 		.stage .foreground,
 		.backdrop.incoming {
+			transition: none !important;
+		}
+
+		.veil,
+		.morph-layer.live {
 			transition: none !important;
 		}
 	}
