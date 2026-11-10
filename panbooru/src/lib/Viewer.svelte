@@ -107,12 +107,14 @@
 		seedOrigin != null &&
 		typeof window !== 'undefined' &&
 		!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-	/** Immediate backdrop: paint from the decoded gallery thumb, else the warm thumb URL. */
+	/**
+	 * Immediate backdrop from the gallery thumb (same CSS blur/brightness as the real one).
+	 * Prefer the warm thumb URL so filter math matches recipe=backdrop; fall back to a paint.
+	 */
 	const seedThumb = untrack(() => {
-		const painted = backdropFromGalleryThumb(post.id);
-		if (painted) return painted;
 		const base = imageSrc || (post.mediaRef ? `/api/media/${post.mediaRef}` : '');
-		return base ? withRecipe(base, 'thumb') : '';
+		if (base) return withRecipe(base, 'thumb');
+		return backdropFromGalleryThumb(post.id) || '';
 	});
 	let morph = $state<MorphFlight | null>(null);
 	let veil = $state(wantsEnter ? 0 : 1);
@@ -1229,15 +1231,7 @@
 	<div class="veil" style:opacity={veil} aria-hidden="true"></div>
 	{#if settledBackdrop}
 		<img
-			class={[
-				'backdrop',
-				'settled',
-				{
-					in: backdropIn,
-					provisional:
-						settledBackdrop.startsWith('data:') || settledBackdrop.includes('recipe=thumb')
-				}
-			]}
+			class={['backdrop', 'settled', { in: backdropIn }]}
 			src={settledBackdrop}
 			alt=""
 			aria-hidden="true"
@@ -1673,11 +1667,6 @@
 
 	.backdrop.settled.in {
 		opacity: 1;
-	}
-
-	/* Thumb stand-in: keep enough brightness that chroma reads during the morph. */
-	.backdrop.settled.provisional {
-		filter: blur(40px) brightness(0.42) saturate(1.05);
 	}
 
 	.backdrop.incoming {
