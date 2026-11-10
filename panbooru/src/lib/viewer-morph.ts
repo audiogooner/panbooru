@@ -79,8 +79,8 @@ export function prefersReducedMotion() {
 }
 
 /**
- * Approximate server `backdrop-v1`: fit inside 48×48, blur(6). The viewer then applies the
- * same CSS blur/brightness as it does for recipe=backdrop, so open morph matches the final look.
+ * Approximate server `backdrop-v1`: fit inside 48×48, blur(6). Avoid black letterboxing — canvas
+ * blur samples empty pixels as black and made the open stand-in darker than recipe=backdrop.
  */
 export function backdropFromImage(image: CanvasImageSource, width: number, height: number) {
 	if (typeof document === 'undefined') return null;
@@ -91,18 +91,29 @@ export function backdropFromImage(image: CanvasImageSource, width: number, heigh
 	const scale = Math.min(1, maxEdge / w, maxEdge / h);
 	const dw = Math.max(1, Math.round(w * scale));
 	const dh = Math.max(1, Math.round(h * scale));
-	const pad = 8;
+	const resized = document.createElement('canvas');
+	resized.width = dw;
+	resized.height = dh;
+	const rctx = resized.getContext('2d');
+	if (!rctx) return null;
+	rctx.drawImage(image, 0, 0, dw, dh);
+	// Extend edges before blur so transparent/black void does not crush luminance.
+	const pad = 12;
+	const room = document.createElement('canvas');
+	room.width = dw + pad * 2;
+	room.height = dh + pad * 2;
+	const roomCtx = room.getContext('2d');
+	if (!roomCtx) return null;
+	roomCtx.drawImage(resized, -pad, -pad, dw + pad * 2, dh + pad * 2);
 	const canvas = document.createElement('canvas');
-	canvas.width = dw + pad * 2;
-	canvas.height = dh + pad * 2;
+	canvas.width = dw;
+	canvas.height = dh;
 	const ctx = canvas.getContext('2d');
 	if (!ctx) return null;
-	ctx.fillStyle = '#000';
-	ctx.fillRect(0, 0, canvas.width, canvas.height);
 	ctx.filter = 'blur(6px)';
-	ctx.drawImage(image, pad, pad, dw, dh);
+	ctx.drawImage(room, -pad, -pad);
 	try {
-		return canvas.toDataURL('image/jpeg', 0.4);
+		return canvas.toDataURL('image/jpeg', 0.55);
 	} catch {
 		return null;
 	}
