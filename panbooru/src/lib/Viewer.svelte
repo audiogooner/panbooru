@@ -1872,6 +1872,10 @@
 		transform: translate(-50%, -50%);
 	}
 
+	.viewer.panel-open:not(.image-over-info) .throbber-slot {
+		left: calc(50% - var(--view-right) / 2);
+	}
+
 	.throbber {
 		display: grid;
 		place-items: center;
