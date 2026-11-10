@@ -242,10 +242,6 @@
 	/** Morph finished and foreground ready; incoming decode is tracked separately. */
 	const backdropStageReady = $derived(!loading && !entering && morph?.phase !== 'enter');
 	const backdropCrossfadeReady = $derived(backdropStageReady && incomingBackdropLoaded);
-	const standInBackdrop = $derived(settledBackdrop !== '' && settledBackdrop !== blurBackdrop);
-	const backdropCrossing = $derived(
-		backdropCrossfadeReady && standInBackdrop && !backdropHandedOff
-	);
 	// Keep the thumb under the foreground until decode + paint, then dismiss for single-.full locators.
 	const showPreview = $derived(previewSrc !== foreground && previewCleared !== post.id);
 	const previewReady = $derived(previewId === post.id);
@@ -1310,7 +1306,6 @@
 				'settled',
 				{
 					in: backdropIn,
-					crossing: backdropCrossing,
 					/* Pin opacity 0 only after handoff — never hide a warm seed while incoming is still fading in. */
 					'handed-off': backdropHandedOff,
 					matched: backdropHandedOff
@@ -1748,11 +1743,6 @@
 
 	.backdrop.settled.in {
 		opacity: 1;
-	}
-
-	.backdrop.settled.in.crossing {
-		opacity: 0;
-		transition: opacity 800ms cubic-bezier(0.37, 0, 0.63, 1);
 	}
 
 	.backdrop.settled.matched,
