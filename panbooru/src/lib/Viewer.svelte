@@ -179,6 +179,10 @@
 	let zoomTimer = 0;
 	let revealTimer = 0;
 	let backdropSettleTimer = 0;
+	/** True once the `.backdrop.incoming` element has painted (not just a warm Image probe). */
+	let incomingBackdropLoaded = $state(false);
+	/** Stand-in stays opacity 0 + transition none before/while the settled src swaps to the HTTP URL. */
+	let backdropHandedOff = $state(false);
 	// Seed a backdrop-v1 look so the field matches the final recipe during open morph.
 	let settledBackdrop = $state(seedBackdrop);
 	let reveal = $state<{ id: string; instant: boolean } | null>(null);
@@ -235,10 +239,13 @@
 	const sequence = $derived(posts.length ? posts : [post]);
 	const index = $derived(sequence.findIndex((item) => item.id === post.id));
 	const loading = $derived(!unsupportedVideo && loadedId !== post.id);
-	/** Real backdrop waits until the open morph is done so the painted stand-in isn't overwritten mid-flight. */
-	const backdropReady = $derived(!loading && !entering && morph?.phase !== 'enter');
+	/** Morph finished and foreground ready; incoming decode is tracked separately. */
+	const backdropStageReady = $derived(!loading && !entering && morph?.phase !== 'enter');
+	const backdropCrossfadeReady = $derived(backdropStageReady && incomingBackdropLoaded);
 	const standInBackdrop = $derived(settledBackdrop !== '' && settledBackdrop !== blurBackdrop);
-	const backdropCrossing = $derived(backdropReady && standInBackdrop);
+	const backdropCrossing = $derived(
+		backdropCrossfadeReady && standInBackdrop && !backdropHandedOff
+	);
 	// Keep the thumb under the foreground until decode + paint, then dismiss for single-.full locators.
 	const showPreview = $derived(previewSrc !== foreground && previewCleared !== post.id);
 	const previewReady = $derived(previewId === post.id);
@@ -791,33 +798,51 @@
 		return resourceNames(url).some((name) => performance.getEntriesByName(name).length > 0);
 	}
 
+	function settleSettledBackdrop(backdrop: string) {
+		backdropHandedOff = true;
+		settledBackdrop = backdrop;
+	}
+
 	function scheduleReveal(id: string, backdrop: string, instant = false) {
 		window.clearTimeout(revealTimer);
-		window.clearTimeout(backdropSettleTimer);
 		const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		const previewDelay = instant || reduced ? 0 : REVEAL_MS;
-		const backdropDelay = reduced ? 0 : BACKDROP_CROSSFADE_MS;
 		const applyPreview = () => {
 			if (!alive || post?.id !== id) return;
 			previewCleared = id;
 		};
-		const applyBackdrop = () => {
+		const applyBackdropInstant = () => {
 			backdropSettleTimer = 0;
 			if (!alive || post?.id !== id) return;
-			// Keep the painted stand-in until the open morph has finished.
 			if (entering || morph?.phase === 'enter') {
-				backdropSettleTimer = window.setTimeout(applyBackdrop, 48);
+				backdropSettleTimer = window.setTimeout(applyBackdropInstant, 48);
 				return;
 			}
-			settledBackdrop = backdrop;
+			settleSettledBackdrop(backdrop);
 		};
 		const run = () => {
 			revealTimer = 0;
 			applyPreview();
-			backdropSettleTimer = window.setTimeout(applyBackdrop, backdropDelay);
+			if (instant || reduced) applyBackdropInstant();
 		};
 		if (previewDelay === 0) run();
 		else revealTimer = window.setTimeout(run, previewDelay);
+	}
+
+	function watchIncomingBackdrop(img: HTMLImageElement) {
+		void blurBackdrop;
+		incomingBackdropLoaded = false;
+		backdropHandedOff = false;
+		const mark = () => {
+			if (img.complete && img.naturalWidth > 0) incomingBackdropLoaded = true;
+		};
+		mark();
+		img.addEventListener('load', mark);
+		img.addEventListener('error', mark);
+		return () => {
+			img.removeEventListener('load', mark);
+			img.removeEventListener('error', mark);
+		};
 	}
 
 	function markLoaded(event: Event) {
@@ -1219,6 +1244,26 @@
 		});
 	});
 
+	// Hide settled only after incoming has faded in (stand-in crossfade or warm seed stack).
+	// Pin opacity 0 before any src swap so a blank HTTP decode cannot flash the black veil.
+	$effect(() => {
+		if (backdropHandedOff || !backdropCrossfadeReady) return;
+		const id = post.id;
+		const backdrop = blurBackdrop;
+		const reduced = prefersReducedMotion();
+		window.clearTimeout(backdropSettleTimer);
+		const delay = reduced ? 0 : BACKDROP_CROSSFADE_MS;
+		backdropSettleTimer = window.setTimeout(() => {
+			backdropSettleTimer = 0;
+			if (!alive || post?.id !== id) return;
+			settleSettledBackdrop(backdrop);
+		}, delay);
+		return () => {
+			window.clearTimeout(backdropSettleTimer);
+			backdropSettleTimer = 0;
+		};
+	});
+
 	// Keep the enter overlay until the fitted stage (or video) is actually showing.
 	$effect(() => {
 		if (!enterMorphDone || closing) return;
@@ -1266,8 +1311,9 @@
 				{
 					in: backdropIn,
 					crossing: backdropCrossing,
-					/* Hide only once incoming owns the field — keep a warm real seed visible during open. */
-					matched: !standInBackdrop && backdropReady
+					/* Pin opacity 0 only after handoff — never hide a warm seed while incoming is still fading in. */
+					'handed-off': backdropHandedOff,
+					matched: backdropHandedOff
 				}
 			]}
 			src={settledBackdrop}
@@ -1276,10 +1322,11 @@
 		/>
 	{/if}
 	<img
-		class={['backdrop', 'incoming', { ready: backdropReady }]}
+		class={['backdrop', 'incoming', { ready: backdropCrossfadeReady }]}
 		src={blurBackdrop}
 		alt=""
 		aria-hidden="true"
+		{@attach watchIncomingBackdrop}
 	/>
 	{#if morph}
 		<div class={['morph-layer', morph.phase]} aria-hidden="true" {@attach morphLayer}>
@@ -1708,9 +1755,11 @@
 		transition: opacity 800ms cubic-bezier(0.37, 0, 0.63, 1);
 	}
 
-	.backdrop.settled.matched {
+	.backdrop.settled.matched,
+	.backdrop.settled.handed-off {
 		opacity: 0;
 		visibility: hidden;
+		transition: none !important;
 	}
 
 	.backdrop.incoming {
