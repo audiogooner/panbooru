@@ -7,6 +7,7 @@
 	import Thumbnail from '#lib/Thumbnail.svelte';
 	import Viewer from '#lib/Viewer.svelte';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
+	import { scrollGalleryToPost } from '#lib/gallery-scroll.ts';
 	import { justifyRows, selectionOutline, squirclePath, squircleRadius } from '#lib/justify.ts';
 	import { queryFromTag } from '#lib/explore.svelte.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
@@ -89,6 +90,12 @@
 			getComputedStyle(document.documentElement).getPropertyValue('--row')
 		);
 		if (Number.isFinite(value) && value > 0) rowHeight = value;
+	}
+
+	function followViewerPost() {
+		const id = openId;
+		if (!id) return;
+		scrollGalleryToPost(id);
 	}
 
 	async function suggest(value: string) {
@@ -324,7 +331,7 @@
 		<p class="quiet">No results</p>
 	{:else}
 		<div class="frame" bind:clientWidth={galleryWidth}>
-			<div class="gallery" {@attach measureRow}>
+			<div class="gallery" {@attach measureRow} {@attach followViewerPost}>
 				{#each rows as row, index (index)}
 					<div class="row">
 						{#each row as post (post.id)}

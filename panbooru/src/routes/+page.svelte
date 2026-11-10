@@ -7,6 +7,7 @@
 	import Icon from '#lib/Icon.svelte';
 	import Thumbnail from '#lib/Thumbnail.svelte';
 	import Viewer from '#lib/Viewer.svelte';
+	import { scrollGalleryToPost } from '#lib/gallery-scroll.ts';
 	import { warmExplorationPost } from '#lib/prefetch.ts';
 	import { warmTagMeta } from '#lib/tag-meta.ts';
 	import { playAdd, playRemove } from '#lib/sounds.ts';
@@ -427,6 +428,38 @@
 		if (!scroller || !tile) return;
 		const line = scroller.getBoundingClientRect().top + anchorInset;
 		scroller.scrollTop += tile.getBoundingClientRect().top - line - anchor.offset;
+	}
+
+	/**
+	 * Keep the gallery scrolled to the open post while the viewer is up so closing
+	 * lands on that tile with its thumbnail already mounted and loaded.
+	 */
+	function followViewerPost() {
+		const mode = activeView().mode;
+		const postId = activeView().postId;
+		if (mode !== 'viewer' || !postId) return;
+		if (!scrollGalleryToPost(postId, anchorInset)) return;
+		const scroller = document.getElementById('scroll');
+		const tile = scroller?.querySelector<HTMLElement>(`[data-post="${CSS.escape(postId)}"]`);
+		if (!scroller || !tile) return;
+		const line = scroller.getBoundingClientRect().top + anchorInset;
+		const offset = tile.getBoundingClientRect().top - line;
+		const scroll = scroller.scrollTop;
+		const previous = untrack(() => {
+			const view = activeView();
+			return { scroll: view.scroll, anchor: view.scrollAnchor };
+		});
+		const sameAnchor =
+			previous.anchor?.id === postId && Math.abs((previous.anchor?.offset ?? 0) - offset) < 0.5;
+		if (previous.scroll !== scroll || !sameAnchor) {
+			rememberGalleryScroll(scroll, { id: postId, offset });
+		}
+		shell.overlay = scroll > 24;
+		if (scroll + scroller.clientHeight > scroller.scrollHeight - SCROLL_PRELOAD_PX) {
+			queueMicrotask(() => {
+				void loadMore();
+			});
+		}
 	}
 
 	function onchrome(state: { focused: boolean; popover: boolean }) {
@@ -1042,7 +1075,7 @@
 	</div>
 {/snippet}
 
-{#if activeView().mode === 'viewer' && currentPost}
+{#if viewing && currentPost}
 	<Viewer
 		post={currentPost}
 		posts={activeView().posts}
@@ -1051,145 +1084,150 @@
 		onmove={showPost}
 		onfilesize={(bytes) => rememberPostFileSize(currentPost.id, bytes)}
 	/>
-{:else}
-	<section class="explore" {@attach applyStoredRow}>
-		{#if downloadError}
-			<p class="notice" role="alert">{downloadError}</p>
-		{/if}
-		<div class="frame" bind:clientWidth={galleryWidth}>
-			{#if error}
-				<p class="notice">
-					{error}
-					<button type="button" onclick={() => void load(activeView().query)}>Retry</button>
-				</p>
-			{:else if loading && activeView().posts.length === 0}
-				<div class="gallery" aria-hidden="true">
-					<div class="row">
-						{#each [0, 1, 2, 3, 4, 5] as item (item)}
-							<div class="tile placeholder" style:width="180px" style:height="{rowHeight}px"></div>
-						{/each}
-					</div>
-				</div>
-			{:else if showEmpty}
-				<p class="notice">No results</p>
-			{:else}
-				<div class="gallery" data-scope={galleryScope} {@attach restoreGalleryPosition}>
-					{#each rows as row (row.map((post) => post.id).join(','))}
-						<div class="row">
-							{#each row as post (post.id)}
-								{@const width = Math.max(post.width, 1)}
-								{@const height = Math.max(post.height, 1)}
-								{@const icon = kindIcon(post)}
-								{@const outline = showOutline(post)}
-								<article
-									class={[
-										'tile',
-										outline && 'favorite',
-										isSelected(selectionKey, post.id) && 'selected',
-										broken[post.id] && 'broken'
-									]}
-									data-post={post.id}
-									draggable="true"
-									style:width="{width}px"
-									style:height="{height}px"
-									style:--squircle={`path('${squirclePath(width, height, squircleRadius)}')`}
-									onpointerenter={() => warmExplorationPost(post)}
-									onfocusin={() => warmExplorationPost(post)}
-									ondragstart={(event) => onTileDrag(event, post)}
-									oncontextmenu={(event) => onTileMenu(event, post)}
-								>
-									<span class="selection-badge" aria-hidden="true"><Icon name="check" /></span>
-									<button type="button" class="open" onclick={(event) => onTileClick(post.id, event)}>
-										<Thumbnail
-											src={tilePreview(post)}
-											alt={post.tags.join(' ')}
-											width={Math.round(width)}
-											height={Math.round(height)}
-											onerror={(event) => {
-												const img = event.currentTarget;
-												if (img instanceof HTMLImageElement) onImageError(post.id, img);
-											}}
-										/>
-									</button>
-									{#if isSelected(selectionKey, post.id)}
-										<svg
-											class="selection-outline"
-											viewBox="0 0 {width} {height}"
-											aria-hidden="true"
-										>
-											<path
-												d={selectionOutline(width, height)}
-												fill="#bfd3f5"
-												fill-rule="evenodd"
-											/>
-										</svg>
-									{/if}
-									{#if outline}
-										<svg
-											class="favorite-outline"
-											viewBox="0 0 {width} {height}"
-											aria-hidden="true"
-										>
-											<path
-												d={favoriteOutline(width, height)}
-												transform="translate(1 1)"
-												fill="none"
-												stroke="#d86d7d"
-												stroke-width="2"
-												stroke-linejoin="round"
-											/>
-										</svg>
-									{/if}
-									{#if icon}
-										<span class="kind"><Icon name={icon} /></span>
-									{/if}
-									<div class="tile-actions">
-										<button
-											type="button"
-											class="tile-action"
-											data-action="add-album"
-											title="Add to album"
-											aria-label="Add to album"
-											onclick={(event) => {
-												event.stopPropagation();
-												requestTileAlbum(post.id, event.currentTarget);
-											}}
-										>
-											<Icon name="book-image" />
-										</button>
-										<button
-											type="button"
-											class={[
-												'tile-action',
-												fillHeart(post) && 'hearted'
-											]}
-											data-action="favorite"
-											title="Favorite"
-											aria-label="Favorite"
-											onclick={() => void finishFavorite(post.id)}
-										>
-											<Icon name="heart" />
-										</button>
-									</div>
-									{#if broken[post.id]}
-										<button
-											type="button"
-											class="retry-thumb"
-											aria-label="Retry thumbnail"
-											onclick={() => retryThumb(post.id)}
-										>
-											<Icon name="image" />
-										</button>
-									{/if}
-								</article>
-							{/each}
-						</div>
+{/if}
+
+<section class="explore" inert={viewing} {@attach applyStoredRow}>
+	{#if downloadError}
+		<p class="notice" role="alert">{downloadError}</p>
+	{/if}
+	<div class="frame" bind:clientWidth={galleryWidth}>
+		{#if error}
+			<p class="notice">
+				{error}
+				<button type="button" onclick={() => void load(activeView().query)}>Retry</button>
+			</p>
+		{:else if loading && activeView().posts.length === 0}
+			<div class="gallery" aria-hidden="true">
+				<div class="row">
+					{#each [0, 1, 2, 3, 4, 5] as item (item)}
+						<div class="tile placeholder" style:width="180px" style:height="{rowHeight}px"></div>
 					{/each}
 				</div>
-			{/if}
-		</div>
-	</section>
-{/if}
+			</div>
+		{:else if showEmpty}
+			<p class="notice">No results</p>
+		{:else}
+			<div
+				class="gallery"
+				data-scope={galleryScope}
+				{@attach restoreGalleryPosition}
+				{@attach followViewerPost}
+			>
+				{#each rows as row (row.map((post) => post.id).join(','))}
+					<div class="row">
+						{#each row as post (post.id)}
+							{@const width = Math.max(post.width, 1)}
+							{@const height = Math.max(post.height, 1)}
+							{@const icon = kindIcon(post)}
+							{@const outline = showOutline(post)}
+							<article
+								class={[
+									'tile',
+									outline && 'favorite',
+									isSelected(selectionKey, post.id) && 'selected',
+									broken[post.id] && 'broken'
+								]}
+								data-post={post.id}
+								draggable="true"
+								style:width="{width}px"
+								style:height="{height}px"
+								style:--squircle={`path('${squirclePath(width, height, squircleRadius)}')`}
+								onpointerenter={() => warmExplorationPost(post)}
+								onfocusin={() => warmExplorationPost(post)}
+								ondragstart={(event) => onTileDrag(event, post)}
+								oncontextmenu={(event) => onTileMenu(event, post)}
+							>
+								<span class="selection-badge" aria-hidden="true"><Icon name="check" /></span>
+								<button type="button" class="open" onclick={(event) => onTileClick(post.id, event)}>
+									<Thumbnail
+										src={tilePreview(post)}
+										alt={post.tags.join(' ')}
+										width={Math.round(width)}
+										height={Math.round(height)}
+										onerror={(event) => {
+											const img = event.currentTarget;
+											if (img instanceof HTMLImageElement) onImageError(post.id, img);
+										}}
+									/>
+								</button>
+								{#if isSelected(selectionKey, post.id)}
+									<svg
+										class="selection-outline"
+										viewBox="0 0 {width} {height}"
+										aria-hidden="true"
+									>
+										<path
+											d={selectionOutline(width, height)}
+											fill="#bfd3f5"
+											fill-rule="evenodd"
+										/>
+									</svg>
+								{/if}
+								{#if outline}
+									<svg
+										class="favorite-outline"
+										viewBox="0 0 {width} {height}"
+										aria-hidden="true"
+									>
+										<path
+											d={favoriteOutline(width, height)}
+											transform="translate(1 1)"
+											fill="none"
+											stroke="#d86d7d"
+											stroke-width="2"
+											stroke-linejoin="round"
+										/>
+									</svg>
+								{/if}
+								{#if icon}
+									<span class="kind"><Icon name={icon} /></span>
+								{/if}
+								<div class="tile-actions">
+									<button
+										type="button"
+										class="tile-action"
+										data-action="add-album"
+										title="Add to album"
+										aria-label="Add to album"
+										onclick={(event) => {
+											event.stopPropagation();
+											requestTileAlbum(post.id, event.currentTarget);
+										}}
+									>
+										<Icon name="book-image" />
+									</button>
+									<button
+										type="button"
+										class={[
+											'tile-action',
+											fillHeart(post) && 'hearted'
+										]}
+										data-action="favorite"
+										title="Favorite"
+										aria-label="Favorite"
+										onclick={() => void finishFavorite(post.id)}
+									>
+										<Icon name="heart" />
+									</button>
+								</div>
+								{#if broken[post.id]}
+									<button
+										type="button"
+										class="retry-thumb"
+										aria-label="Retry thumbnail"
+										onclick={() => retryThumb(post.id)}
+									>
+										<Icon name="image" />
+									</button>
+								{/if}
+							</article>
+						{/each}
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+</section>
 
 {#if albumPicker}
 	<AlbumPicker
