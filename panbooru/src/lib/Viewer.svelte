@@ -186,7 +186,7 @@
 	let alive = true;
 	let video: HTMLVideoElement | null = null;
 	const REVEAL_MS = 360;
-	const BACKDROP_CROSSFADE_MS = 360;
+	const BACKDROP_CROSSFADE_MS = 800;
 	const revealInstant = $derived(reveal?.id === post.id && reveal.instant);
 
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
@@ -1705,7 +1705,7 @@
 
 	.backdrop.settled.in.crossing {
 		opacity: 0;
-		transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1);
+		transition: opacity 800ms cubic-bezier(0.37, 0, 0.63, 1);
 	}
 
 	.backdrop.settled.matched {
@@ -1717,7 +1717,7 @@
 		z-index: 2;
 		opacity: 0;
 		/* Keep transition armed so ready→opacity:1 always crossfades (not a same-frame skip). */
-		transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1);
+		transition: opacity 800ms cubic-bezier(0.37, 0, 0.63, 1);
 	}
 
 	.backdrop.incoming.ready {
