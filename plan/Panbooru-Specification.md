@@ -199,12 +199,12 @@ Use a stable item ID plus intra-item offset for scroll restoration so justified-
 |---|---|
 | Library, favorites, albums, tag cache, credentials, retained files | Server |
 | Saved-search presets and their editable labels/types/covers | Server |
-| Open-context identity and selection checkpoints | Per-workspace persistence; exact storage design recommended, not shared active state |
-| Active view, active post, browser Back/Forward, pointer/zoom/scroll | Browser session |
-| Reload checkpoint of current workspace | Browser session, recommended |
+| Open-context identity and selection checkpoints | This browser, one workspace record per tab |
+| Active view, active post, browser Back/Forward, pointer/zoom/scroll | That tab's workspace. Back and Forward stay in the tab |
+| Reload checkpoint of current workspace | This browser, on that workspace record |
 | Cached bytes/results | Evictable; never the library authority |
 
-New browser tabs and devices have independent active exploration sessions. A duplicated tab may start with copied state but must receive a new runtime identity before mutations. Shared library changes use revision-aware updates and refresh/invalidation across clients; they must not move another device's active post. Full cross-device workspace resume is deferred. **F:** browser reload restores open views, temporary album entries, active context, queries, order, gallery scroll and viewer image; reset zoom/pan and video positions. Saved searches are shared reusable presets, distinct from active workspace contexts. Restoration after complete browser restart and closed-history lifetime remain open.
+Each browser tab keeps its own active exploration session. A duplicated tab may copy session identity, but it takes a new runtime identity before it writes, and it does not take the workspace the original tab still holds. Closing a tab keeps that workspace in this browser. The next Panbooru tab adopts the newest workspace that no live tab holds. A reload of the same tab returns to its own workspace. Two open tabs do not overwrite each other. Other devices stay independent. Full cross-device workspace resume is deferred. **F:** browser reload, a later tab in this browser, and a browser restart restore open views, temporary album entries, active context, queries, order, gallery scroll and viewer image; reset zoom/pan and video positions. Saved searches are shared reusable presets, distinct from active workspace contexts. Closed-history lifetime remains open.
 
 ## 5. Search and tag metadata
 
@@ -697,7 +697,7 @@ These stages replace conflicting historical milestone labels; they are proposed 
 | Source mapping for chosen rating labels | All UI ratings/media default selected and Newest sort are fixed; verify source mapping, especially General/Sensitive |
 | Batch lookahead/resource budgets | Infinite scroll is fixed; select limits and preload defaults through measurement |
 | History on view switching/closed views | Adopt documented recommended policy in section 4 unless owner chooses otherwise |
-| Unsaved workspace persistence beyond reload | Keep active sessions independent; centrally save explicit views first |
+| Unsaved workspace persistence beyond reload | Decided: each browser tab's workspace stays in this browser after the tab closes and after restart. A new tab adopts the newest workspace no live tab holds. Cross-device resume stays deferred |
 | Duplicate/negated token append | Use section 4 proposed rule, document complex-expression behavior |
 | Final typography, palette, panel widths, row height, fade/reveal timing | Resolve in separate gallery/viewer review; image-derived blurred/dimmed backdrop is selected, but exact treatment remains open |
 | Shortcut capture/platform conflicts | Defaults and current gestures are fixed in UI record; validate Firefox/macOS behavior and customization conflicts |

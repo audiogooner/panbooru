@@ -18,7 +18,7 @@ const ready = $derived(shown === src);
 
 - DOM setup uses `{@attach fn}` and returns a teardown from the attachment. Prefer that over `onMount` for listeners.
 - Class lists are arrays: `class={['thumb', fit, ready && 'ready']}`.
-- Shared client state lives in a `*.svelte.ts` module next to the feature (`workspace.ts`, `selection.svelte.ts`, `explore.svelte.ts`). Tab-session state stays in memory. The localStorage exceptions are the preference keys named in `src/routes/layout.css`.
+- Shared client state lives in a `*.svelte.ts` module next to the feature (`workspace.ts`, `selection.svelte.ts`, `explore.svelte.ts`). A tab's workspace is saved in this browser (`localStorage`) and claimed with a lease so two open tabs do not write the same record. Tab identity stays in `sessionStorage`. The other localStorage keys are the preference keys named in `src/routes/layout.css`.
 - Do not import `#lib/server/**` from a `.svelte` file. Load data in `+page.server.ts` or `+layout.server.ts`.
 - Component CSS stays in a scoped `<style>` block. Shared tokens stay in `src/routes/layout.css`.
 - Imports use `#lib/...` and keep the extension: `#lib/Thumbnail.svelte`, `#lib/shortcuts.ts`.

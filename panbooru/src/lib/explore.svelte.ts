@@ -21,15 +21,20 @@ import {
 	checkpointFromViews,
 	explorationViews,
 	patchCheckpoint,
-	readCheckpoint,
 	readHistoryCursor,
 	rehydrateHistory
 } from '#lib/workspace.ts';
+import {
+	bootWorkspace,
+	onWorkspaceReplaced,
+	settleWorkspace,
+	workspaceBacking
+} from '#lib/workspace-session.svelte.ts';
 
 function initialNavigation(): NavigationState {
 	if (!browser) return createNavigation();
 	try {
-		const saved = readCheckpoint(sessionStorage);
+		const saved = bootWorkspace();
 		if (!saved?.views.length) return createNavigation();
 		return restoreNavigation({
 			views: explorationViews(saved.views),
@@ -61,7 +66,17 @@ if (browser) {
 	} catch {
 		historyCursor = 0;
 	}
+	onWorkspaceReplaced((checkpoint) => {
+		const next = checkpoint?.views.length
+			? restoreNavigation({
+					views: explorationViews(checkpoint.views),
+					activeId: checkpoint.activeId
+				})
+			: createNavigation();
+		apply(next);
+	});
 	persistWorkspace();
+	void settleWorkspace();
 }
 
 function flushPendingHistoryReplace() {
@@ -99,17 +114,17 @@ function apply(next: NavigationState) {
 	persistWorkspace();
 }
 
-/** Write the open views. Closed views and temporary albums already in the session store stay put. */
+/** Write the open views. Closed views and temporary albums already in this workspace stay put. */
 export function persistWorkspace() {
 	if (!browser) return;
 	try {
-		patchCheckpoint(sessionStorage, checkpointFromViews(navigation.views, navigation.activeId));
+		patchCheckpoint(workspaceBacking(), checkpointFromViews(navigation.views, navigation.activeId));
 	} catch {
-		// sessionStorage is unavailable in this browser context.
+		// Workspace storage is unavailable in this browser context.
 	}
 }
 
-/** Record the active view's gallery scroll for the session checkpoint. */
+/** Record the active view's gallery scroll for this tab's workspace. */
 export function rememberGalleryScroll(scroll: number, anchor: ScrollAnchor | null = null) {
 	const id = navigation.activeId;
 	navigation.views = navigation.views.map((view) =>

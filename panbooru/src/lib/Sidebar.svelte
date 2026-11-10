@@ -27,6 +27,7 @@
 		type ClosedCheckpoint,
 		type TemporaryAlbumEntry
 	} from '#lib/workspace.ts';
+	import { onWorkspaceReplaced, workspaceBacking } from '#lib/workspace-session.svelte.ts';
 	import { tick } from 'svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -70,7 +71,8 @@
 			firstItems?: CoverRef[];
 		};
 	};
-	type ClosedEntry = { kind: 'view'; view: ExplorationView } | ({ kind: 'album' } & TemporaryAlbumEntry);
+	type ClosedEntry =
+		{ kind: 'view'; view: ExplorationView } | ({ kind: 'album' } & TemporaryAlbumEntry);
 
 	const knownCategories = new SvelteMap<string, string>();
 	const closedStack: ClosedEntry[] = [];
@@ -140,9 +142,9 @@
 		const ids = [...readLibrary().temporary];
 		return () => {
 			try {
-				retainTemporaryAlbums(sessionStorage, ids);
+				retainTemporaryAlbums(workspaceBacking(), ids);
 			} catch {
-				// sessionStorage is unavailable in this browser context.
+				// Workspace storage is unavailable in this browser context.
 			}
 		};
 	});
@@ -217,6 +219,12 @@
 			// Preference storage is unavailable in this browser context.
 		}
 	}
+
+	const watchClosed: Attachment<HTMLElement> = () =>
+		onWorkspaceReplaced(() => {
+			const next = loadClosed();
+			closedStack.splice(0, closedStack.length, ...next);
+		});
 
 	const restorePreferences: Attachment<HTMLElement> = () => {
 		// The shell still passes logout. Settings owns the button, so this only keeps the prop live.
@@ -589,7 +597,7 @@
 	function loadClosed(): ClosedEntry[] {
 		if (!browser) return [];
 		try {
-			const saved = readCheckpoint(sessionStorage);
+			const saved = readCheckpoint(workspaceBacking());
 			if (!saved) return [];
 			return saved.closed.map((entry) =>
 				entry.kind === 'album'
@@ -607,9 +615,9 @@
 			const closed: ClosedCheckpoint[] = closedStack.map((entry) =>
 				entry.kind === 'album' ? entry : { kind: 'view', view: toCheckpointView(entry.view) }
 			);
-			patchCheckpoint(sessionStorage, { closed });
+			patchCheckpoint(workspaceBacking(), { closed });
 		} catch {
-			// sessionStorage is unavailable in this browser context.
+			// Workspace storage is unavailable in this browser context.
 		}
 	}
 
@@ -689,7 +697,7 @@
 		let saved: TemporaryAlbumEntry | null = null;
 		if (browser) {
 			try {
-				saved = temporaryAlbum(sessionStorage, id);
+				saved = temporaryAlbum(workspaceBacking(), id);
 			} catch {
 				saved = null;
 			}
@@ -928,7 +936,12 @@
 	ondragend={endDrag}
 />
 
-<nav class="sidebar" aria-label="Main navigation" {@attach restorePreferences}>
+<nav
+	class="sidebar"
+	aria-label="Main navigation"
+	{@attach restorePreferences}
+	{@attach watchClosed}
+>
 	<a class="brand" href={resolve('/')}>
 		<span class="brand-placeholder" aria-hidden="true" title="Logo placeholder — artwork undecided"
 		></span>
@@ -1143,24 +1156,48 @@
 						<span></span>
 					</div>
 					{#if task.state === 'failed'}
-						<button class="menu-item" type="button" onclick={() => void importAction(task.id, 'retry')}>
+						<button
+							class="menu-item"
+							type="button"
+							onclick={() => void importAction(task.id, 'retry')}
+						>
 							Retry
 						</button>
-						<button class="menu-item" type="button" onclick={() => void importAction(task.id, 'dismiss')}>
+						<button
+							class="menu-item"
+							type="button"
+							onclick={() => void importAction(task.id, 'dismiss')}
+						>
 							Dismiss
 						</button>
 					{:else if task.state === 'paused'}
-						<button class="menu-item" type="button" onclick={() => void importAction(task.id, 'resume')}>
+						<button
+							class="menu-item"
+							type="button"
+							onclick={() => void importAction(task.id, 'resume')}
+						>
 							Resume
 						</button>
-						<button class="menu-item" type="button" onclick={() => void importAction(task.id, 'cancel')}>
+						<button
+							class="menu-item"
+							type="button"
+							onclick={() => void importAction(task.id, 'cancel')}
+						>
 							Cancel
 						</button>
 					{:else if task.state === 'queued' || task.state === 'leased'}
-						<button class="menu-item" type="button" onclick={() => void importAction(task.id, 'pause')}>
+						<button
+							class="menu-item"
+							type="button"
+							onclick={() => void importAction(task.id, 'pause')}
+						>
 							Pause
 						</button>
-						<button class="menu-item" type="button" onclick={() => void importAction(task.id, 'cancel')}>
+						<button
+							class="menu-item"
+							type="button"
+							onclick={() => void importAction(task.id, 'cancel')}
+						>
 							Cancel
 						</button>
 					{/if}
@@ -1182,10 +1219,16 @@
 						{/if}
 					</div>
 					{#if job.state === 'failed'}
-						<button class="menu-item" type="button" onclick={() => taskAction(job.id, 'retry')}>Retry</button>
-						<button class="menu-item" type="button" onclick={() => taskAction(job.id, 'dismiss')}>Dismiss</button>
+						<button class="menu-item" type="button" onclick={() => taskAction(job.id, 'retry')}
+							>Retry</button
+						>
+						<button class="menu-item" type="button" onclick={() => taskAction(job.id, 'dismiss')}
+							>Dismiss</button
+						>
 					{:else if job.state === 'queued' || job.state === 'retry'}
-						<button class="menu-item" type="button" onclick={() => taskAction(job.id, 'cancel')}>Cancel</button>
+						<button class="menu-item" type="button" onclick={() => taskAction(job.id, 'cancel')}
+							>Cancel</button
+						>
 					{/if}
 				{/each}
 				{#if taskJobs.length === 0 && taskImports.length === 0}
