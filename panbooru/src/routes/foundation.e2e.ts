@@ -139,7 +139,17 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 
 	await page.locator('.gallery img').first().click();
 	await page.getByRole('button', { name: 'Show tags' }).click();
-	await tags.getByRole('button', { name: 'sunset', exact: true }).click({ modifiers: ['Meta'] });
+	await tags.getByRole('button', { name: 'landscape', exact: true }).click({ button: 'right' });
+	await expect(page.getByRole('menu')).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: 'Search' })).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: 'Append to search' })).toBeVisible();
+	await page.getByRole('menuitem', { name: 'Open in background' }).click();
+	await expect(nav.getByRole('button', { name: 'landscape', exact: true })).toBeVisible();
+	await expect(page.getByText('Opened in background')).toBeVisible();
+	await expect(page.getByLabel('Tags')).toHaveValue('sunset landscape');
+	await expect(page.locator('.viewer')).toBeVisible();
+
+	await tags.getByRole('button', { name: 'sunset', exact: true }).click({ button: 'middle' });
 	await expect(nav.getByRole('button', { name: 'sunset', exact: true })).toBeVisible();
 	await expect(page.getByText('Opened in background')).toBeVisible();
 	await page.getByRole('button', { name: 'Open', exact: true }).click();

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Icon from '#lib/Icon.svelte';
 	import AlbumPicker from '#lib/AlbumPicker.svelte';
+	import { openContextMenu } from '#lib/menu.svelte.ts';
 	import type { DragPost } from '#lib/selection.svelte.ts';
 	import { editingText, matchesShortcut } from '#lib/shortcuts.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
@@ -319,6 +320,33 @@
 		if (event.button !== 1) return;
 		event.preventDefault();
 		ontag(tag, event, tagAnchor(event));
+	}
+
+	function onTagMenu(tag: string, event: MouseEvent) {
+		// Cmd/Ctrl-click already opens a background view. On macOS that gesture also
+		// fires contextmenu; suppress the native menu without opening ours.
+		if (event.ctrlKey || event.metaKey) {
+			event.preventDefault();
+			return;
+		}
+		const anchor = tagAnchor(event);
+		openContextMenu(
+			event,
+			[
+				{ id: 'search', label: 'Search', icon: 'search' },
+				{ id: 'append', label: 'Append to search', icon: 'plus' },
+				{ id: 'background', label: 'Open in background', icon: 'panel' }
+			],
+			(action) => {
+				if (action === 'search') {
+					ontag(tag, { shiftKey: false, metaKey: false, ctrlKey: false, altKey: false }, anchor);
+				} else if (action === 'append') {
+					ontag(tag, { shiftKey: true, metaKey: false, ctrlKey: false, altKey: false }, anchor);
+				} else if (action === 'background') {
+					ontag(tag, { shiftKey: false, metaKey: true, ctrlKey: false, altKey: false }, anchor);
+				}
+			}
+		);
 	}
 
 	function resizeDetails(event: KeyboardEvent) {
@@ -1183,6 +1211,7 @@
 													aria-label={tag.name}
 													onclick={(event) => ontag(tag.name, event, tagAnchor(event))}
 													onauxclick={(event) => onTagAux(tag.name, event)}
+													oncontextmenu={(event) => onTagMenu(tag.name, event)}
 													onkeydown={(event) => onTagKey(tag.name, event)}
 												>
 													<span class={group.category}>{tag.name.replaceAll('_', ' ')}</span>
