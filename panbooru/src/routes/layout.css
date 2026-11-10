@@ -18,6 +18,8 @@
 	--right: 310px;
 	--row: 190px;
 	--album-height: 160px;
+	--viewer-morph-ms: 420ms;
+	--viewer-morph-ease: cubic-bezier(0.16, 1, 0.3, 1);
 	--red: #eb8492;
 	--green: #99c8a3;
 	--blue: #8fb5e5;
@@ -170,16 +172,62 @@ h1 {
 	padding-top: 60px;
 }
 
+/* Keep gallery geometry stable while the viewer overlays: sidebar leaves flex flow. */
+.app:has(.viewer)::before {
+	content: '';
+	flex: none;
+	width: var(--side);
+	height: 100%;
+	pointer-events: none;
+	visibility: hidden;
+}
+
 .app:has(.viewer) .sidebar {
 	position: fixed;
 	top: 0;
 	left: 0;
 	z-index: 60;
 	height: 100%;
+	width: var(--side) !important;
 	transform: translateX(-100%);
 	transition: none;
 	background: #12151ce8 !important;
 	backdrop-filter: blur(22px);
+}
+
+.app:has(.viewer.entering) .sidebar {
+	animation: panbooru-sidebar-out var(--viewer-morph-ms) var(--viewer-morph-ease) both;
+}
+
+.app:has(.viewer.closing) .sidebar {
+	animation: panbooru-sidebar-in var(--viewer-morph-ms) var(--viewer-morph-ease) both;
+}
+
+@keyframes panbooru-sidebar-out {
+	from {
+		transform: translateX(0);
+	}
+
+	to {
+		transform: translateX(-100%);
+	}
+}
+
+@keyframes panbooru-sidebar-in {
+	from {
+		transform: translateX(-100%);
+	}
+
+	to {
+		transform: translateX(0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.app:has(.viewer.entering) .sidebar,
+	.app:has(.viewer.closing) .sidebar {
+		animation: none;
+	}
 }
 
 .artist {

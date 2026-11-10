@@ -102,6 +102,8 @@
 	let veil = $state(0);
 	let enterStarted = false;
 	let closing = $state(false);
+	/** Top chrome (back + icon bar) slides in after open morph / out before close. */
+	let chromeIn = $state(false);
 	let morphTimer = 0;
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
@@ -295,6 +297,7 @@
 	function requestClose() {
 		if (closing) return;
 		if (document.fullscreenElement) void document.exitFullscreen();
+		chromeIn = false;
 		if (prefersReducedMotion()) {
 			onclose();
 			return;
@@ -1024,16 +1027,19 @@
 		const openOrigin = origin ?? null;
 		if (!openOrigin || prefersReducedMotion()) {
 			veil = 1;
+			chromeIn = true;
 			return;
 		}
 		const to = displayRect();
 		if (!to) {
 			veil = 1;
+			chromeIn = true;
 			return;
 		}
 		const src = morphSrc() || previewSrc;
 		morph = { phase: 'enter', rect: openOrigin, radius: 14, src, live: false };
 		veil = 0;
+		chromeIn = false;
 		requestAnimationFrame(() => {
 			requestAnimationFrame(() => {
 				if (!alive || closing) return;
@@ -1044,6 +1050,7 @@
 					morphTimer = 0;
 					if (!alive || closing) return;
 					morph = null;
+					chromeIn = true;
 				}, MORPH_MS + 32);
 			});
 		});
@@ -1063,7 +1070,8 @@
 			closing,
 			'media-hidden': morph !== null || closing,
 			entering: morph?.phase === 'enter',
-			leaving: morph?.phase === 'leave'
+			leaving: morph?.phase === 'leave',
+			'chrome-in': chromeIn
 		}
 	]}
 	style:--view-right={tagsOpen ? `${detailsWidth}px` : '0px'}
@@ -1485,14 +1493,10 @@
 		transition: none !important;
 	}
 
-	.viewer.morphing .back,
-	.viewer.morphing .viewer-bar,
 	.viewer.morphing .edge-button,
 	.viewer.morphing .edge-zone,
 	.viewer.morphing .right-panel,
 	.viewer.morphing .bar,
-	.viewer.closing .back,
-	.viewer.closing .viewer-bar,
 	.viewer.closing .edge-button,
 	.viewer.closing .edge-zone,
 	.viewer.closing .right-panel,
@@ -1705,7 +1709,9 @@
 		}
 
 		.veil,
-		.morph-layer.live {
+		.morph-layer.live,
+		.back,
+		.viewer-bar {
 			transition: none !important;
 		}
 	}
@@ -1789,7 +1795,19 @@
 
 	.back,
 	.viewer-bar {
-		transition: opacity 0.2s;
+		opacity: 0;
+		transform: translateY(-36px);
+		pointer-events: none;
+		transition:
+			opacity var(--viewer-morph-ms, 420ms) var(--viewer-morph-ease, cubic-bezier(0.16, 1, 0.3, 1)),
+			transform var(--viewer-morph-ms, 420ms) var(--viewer-morph-ease, cubic-bezier(0.16, 1, 0.3, 1));
+	}
+
+	.viewer.chrome-in .back,
+	.viewer.chrome-in .viewer-bar {
+		opacity: 1;
+		transform: translateY(0);
+		pointer-events: auto;
 	}
 
 	.viewer.hide-controls .back,
@@ -1797,6 +1815,11 @@
 	.viewer.hide-controls .bar {
 		pointer-events: none;
 		opacity: 0;
+	}
+
+	.viewer.hide-controls.chrome-in .back,
+	.viewer.hide-controls.chrome-in .viewer-bar {
+		transform: translateY(0);
 	}
 
 	.viewer.hide-controls.panel-open .viewer-bar {
