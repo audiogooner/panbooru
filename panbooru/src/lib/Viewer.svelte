@@ -126,6 +126,8 @@
 	let morphAnim: Animation | null = null;
 	/** Enter FLIP finished; keep the overlay up until the real stage has painted. */
 	let enterMorphDone = $state(false);
+	/** Thumb-seeded backdrop fades in with the open (starts off so it doesn't pop). */
+	let backdropIn = $state(false);
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
 	let albumPickerFor = $state<string | null>(null);
@@ -1149,6 +1151,10 @@
 			veil = 1;
 			chromeIn = true;
 			entering = false;
+			requestAnimationFrame(() => {
+				if (!alive || closing) return;
+				backdropIn = true;
+			});
 			return;
 		}
 		const to = displayRect();
@@ -1156,6 +1162,10 @@
 			veil = 1;
 			chromeIn = true;
 			entering = false;
+			requestAnimationFrame(() => {
+				if (!alive || closing) return;
+				backdropIn = true;
+			});
 			return;
 		}
 		entering = true;
@@ -1169,10 +1179,11 @@
 			to,
 			src: morphSrc() || previewSrc
 		};
-		// Fade the veil and slide chrome while the box morph runs.
+		// Fade veil, backdrop, and chrome while the box morph runs.
 		requestAnimationFrame(() => {
 			if (!alive || closing) return;
 			veil = 1;
+			backdropIn = true;
 			chromeIn = true;
 		});
 	});
@@ -1222,6 +1233,7 @@
 				'backdrop',
 				'settled',
 				{
+					in: backdropIn,
 					provisional:
 						settledBackdrop.startsWith('data:') || settledBackdrop.includes('recipe=thumb')
 				}
@@ -1655,6 +1667,12 @@
 	.backdrop.settled {
 		/* Above the black veil so a thumb-seeded blur is visible during open morph. */
 		z-index: 1;
+		opacity: 0;
+		transition: opacity var(--viewer-morph-ms, 420ms) var(--viewer-morph-ease, cubic-bezier(0.16, 1, 0.3, 1));
+	}
+
+	.backdrop.settled.in {
+		opacity: 1;
 	}
 
 	/* Thumb stand-in: keep enough brightness that chroma reads during the morph. */
