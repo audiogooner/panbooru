@@ -78,17 +78,36 @@ export function prefersReducedMotion() {
 	return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
+/** Matches `backdrop-v1` in `derivative.ts` (before viewer CSS filters). */
+export const BACKDROP_RECIPE_EDGE = 48;
+export const BACKDROP_RECIPE_BLUR = 6;
+/** WebP quality for `backdrop-v1`; stand-in uses the same when the browser supports it. */
+export const BACKDROP_RECIPE_QUALITY = 0.4;
+
+function backdropDataUrl(canvas: HTMLCanvasElement) {
+	try {
+		const webp = canvas.toDataURL('image/webp', BACKDROP_RECIPE_QUALITY);
+		if (webp.startsWith('data:image/webp')) return webp;
+	} catch {
+		/* webp encode unavailable */
+	}
+	try {
+		return canvas.toDataURL('image/jpeg', 0.42);
+	} catch {
+		return null;
+	}
+}
+
 /**
- * Approximate server `backdrop-v1`: fit inside 48×48, blur(6). Avoid black letterboxing — canvas
- * blur samples empty pixels as black and made the open stand-in darker than recipe=backdrop.
+ * Approximate server `backdrop-v1`: fit inside 48×48, blur(6). Canvas blur samples empty pixels
+ * as black; pad with untinted edge extend (not stretch) so the stand-in matches recipe=backdrop.
  */
 export function backdropFromImage(image: CanvasImageSource, width: number, height: number) {
 	if (typeof document === 'undefined') return null;
 	const w = Math.max(1, Math.round(width));
 	const h = Math.max(1, Math.round(height));
 	if (w < 1 || h < 1) return null;
-	const maxEdge = 48;
-	const scale = Math.min(1, maxEdge / w, maxEdge / h);
+	const scale = Math.min(1, BACKDROP_RECIPE_EDGE / w, BACKDROP_RECIPE_EDGE / h);
 	const dw = Math.max(1, Math.round(w * scale));
 	const dh = Math.max(1, Math.round(h * scale));
 	const resized = document.createElement('canvas');
@@ -96,27 +115,41 @@ export function backdropFromImage(image: CanvasImageSource, width: number, heigh
 	resized.height = dh;
 	const rctx = resized.getContext('2d');
 	if (!rctx) return null;
+	rctx.imageSmoothingEnabled = true;
+	rctx.imageSmoothingQuality = 'high';
 	rctx.drawImage(image, 0, 0, dw, dh);
-	// Extend edges before blur so transparent/black void does not crush luminance.
-	const pad = 12;
+	const pad = BACKDROP_RECIPE_BLUR * 2;
 	const room = document.createElement('canvas');
 	room.width = dw + pad * 2;
 	room.height = dh + pad * 2;
 	const roomCtx = room.getContext('2d');
 	if (!roomCtx) return null;
-	roomCtx.drawImage(resized, -pad, -pad, dw + pad * 2, dh + pad * 2);
+	roomCtx.drawImage(resized, pad, pad);
+	// 1px edge + corner replicate (sharp/libvips-style) so blur never samples void.
+	roomCtx.drawImage(resized, 0, 0, 1, dh, 0, pad, pad, dh);
+	roomCtx.drawImage(resized, dw - 1, 0, 1, dh, pad + dw, pad, pad, dh);
+	roomCtx.drawImage(resized, 0, 0, dw, 1, pad, 0, dw, pad);
+	roomCtx.drawImage(resized, 0, dh - 1, dw, 1, pad, pad + dh, dw, pad);
+	roomCtx.drawImage(resized, 0, 0, 1, 1, 0, 0, pad, pad);
+	roomCtx.drawImage(resized, dw - 1, 0, 1, 1, pad + dw, 0, pad, pad);
+	roomCtx.drawImage(resized, 0, dh - 1, 1, 1, 0, pad + dh, pad, pad);
+	roomCtx.drawImage(resized, dw - 1, dh - 1, 1, 1, pad + dw, pad + dh, pad, pad);
 	const canvas = document.createElement('canvas');
 	canvas.width = dw;
 	canvas.height = dh;
 	const ctx = canvas.getContext('2d');
 	if (!ctx) return null;
-	ctx.filter = 'blur(6px)';
+	ctx.filter = `blur(${BACKDROP_RECIPE_BLUR}px)`;
 	ctx.drawImage(room, -pad, -pad);
-	try {
-		return canvas.toDataURL('image/jpeg', 0.55);
-	} catch {
-		return null;
-	}
+	return backdropDataUrl(canvas);
+}
+
+/** True when `url` is already decoded in the HTTP/memory cache (sync after setting Image.src). */
+export function backdropUrlWarm(url: string) {
+	if (!url || typeof Image === 'undefined') return false;
+	const probe = new Image();
+	probe.src = url;
+	return probe.complete && probe.naturalWidth > 0;
 }
 
 /** Prefer the decoded gallery tile bitmap so open morph has a backdrop on the first frame. */

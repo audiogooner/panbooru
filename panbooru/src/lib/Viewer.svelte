@@ -18,6 +18,7 @@
 		MORPH_EASE,
 		MORPH_MS,
 		backdropFromGalleryThumb,
+		backdropUrlWarm,
 		type MorphRect,
 		prefersReducedMotion,
 		readGalleryTileRect
@@ -108,13 +109,16 @@
 		typeof window !== 'undefined' &&
 		!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 	/**
-	 * Immediate backdrop that matches recipe=backdrop: paint the gallery thumb with the same
-	 * 48px + blur(6) treatment the server uses (library posts keep the thumb URL).
+	 * Immediate backdrop for open: prefer a warm recipe=backdrop (exact match), else paint the
+	 * gallery thumb with the same 48px + blur(6) treatment (library posts keep the thumb URL).
 	 */
 	const seedBackdrop = untrack(() => {
 		const base = imageSrc || (post.mediaRef ? `/api/media/${post.mediaRef}` : '');
-		if (imageSrc && base) return withRecipe(base, 'thumb');
-		return backdropFromGalleryThumb(post.id) || '';
+		if (!base) return backdropFromGalleryThumb(post.id) || '';
+		if (imageSrc) return withRecipe(base, 'thumb');
+		const real = withRecipe(base, 'backdrop');
+		if (backdropUrlWarm(real)) return real;
+		return backdropFromGalleryThumb(post.id) || real;
 	});
 	let morph = $state<MorphFlight | null>(null);
 	let veil = $state(wantsEnter ? 0 : 1);
@@ -174,6 +178,7 @@
 	let chromeTimer = 0;
 	let zoomTimer = 0;
 	let revealTimer = 0;
+	let backdropSettleTimer = 0;
 	// Seed a backdrop-v1 look so the field matches the final recipe during open morph.
 	let settledBackdrop = $state(seedBackdrop);
 	let reveal = $state<{ id: string; instant: boolean } | null>(null);
@@ -181,6 +186,7 @@
 	let alive = true;
 	let video: HTMLVideoElement | null = null;
 	const REVEAL_MS = 360;
+	const BACKDROP_CROSSFADE_MS = 360;
 	const revealInstant = $derived(reveal?.id === post.id && reveal.instant);
 
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
@@ -231,6 +237,8 @@
 	const loading = $derived(!unsupportedVideo && loadedId !== post.id);
 	/** Real backdrop waits until the open morph is done so the painted stand-in isn't overwritten mid-flight. */
 	const backdropReady = $derived(!loading && !entering && morph?.phase !== 'enter');
+	const standInBackdrop = $derived(settledBackdrop !== '' && settledBackdrop !== blurBackdrop);
+	const backdropCrossing = $derived(backdropReady && standInBackdrop);
 	// Keep the thumb under the foreground until decode + paint, then dismiss for single-.full locators.
 	const showPreview = $derived(previewSrc !== foreground && previewCleared !== post.id);
 	const previewReady = $derived(previewId === post.id);
@@ -785,21 +793,31 @@
 
 	function scheduleReveal(id: string, backdrop: string, instant = false) {
 		window.clearTimeout(revealTimer);
-		const delay =
-			instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : REVEAL_MS;
-		const apply = () => {
-			revealTimer = 0;
+		window.clearTimeout(backdropSettleTimer);
+		const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		const previewDelay = instant || reduced ? 0 : REVEAL_MS;
+		const backdropDelay = reduced ? 0 : BACKDROP_CROSSFADE_MS;
+		const applyPreview = () => {
 			if (!alive || post?.id !== id) return;
 			previewCleared = id;
+		};
+		const applyBackdrop = () => {
+			backdropSettleTimer = 0;
+			if (!alive || post?.id !== id) return;
 			// Keep the painted stand-in until the open morph has finished.
 			if (entering || morph?.phase === 'enter') {
-				revealTimer = window.setTimeout(apply, 48);
+				backdropSettleTimer = window.setTimeout(applyBackdrop, 48);
 				return;
 			}
 			settledBackdrop = backdrop;
 		};
-		if (delay === 0) apply();
-		else revealTimer = window.setTimeout(apply, delay);
+		const run = () => {
+			revealTimer = 0;
+			applyPreview();
+			backdropSettleTimer = window.setTimeout(applyBackdrop, backdropDelay);
+		};
+		if (previewDelay === 0) run();
+		else revealTimer = window.setTimeout(run, previewDelay);
 	}
 
 	function markLoaded(event: Event) {
@@ -1048,7 +1066,9 @@
 			window.clearTimeout(chromeTimer);
 			window.clearTimeout(zoomTimer);
 			window.clearTimeout(revealTimer);
+			window.clearTimeout(backdropSettleTimer);
 			revealTimer = 0;
+			backdropSettleTimer = 0;
 			if (root === node) root = null;
 		};
 	}
@@ -1240,18 +1260,23 @@
 	<div class="veil" style:opacity={veil} aria-hidden="true"></div>
 	{#if settledBackdrop}
 		<img
-			class={['backdrop', 'settled', { in: backdropIn }]}
+			class={[
+				'backdrop',
+				'settled',
+				{
+					in: backdropIn,
+					crossing: backdropCrossing,
+					/* Hide only once incoming owns the field — keep a warm real seed visible during open. */
+					matched: !standInBackdrop && backdropReady
+				}
+			]}
 			src={settledBackdrop}
 			alt=""
 			aria-hidden="true"
 		/>
 	{/if}
 	<img
-		class={[
-			'backdrop',
-			'incoming',
-			{ ready: backdropReady, instant: backdropReady && revealInstant }
-		]}
+		class={['backdrop', 'incoming', { ready: backdropReady }]}
 		src={blurBackdrop}
 		alt=""
 		aria-hidden="true"
@@ -1678,22 +1703,28 @@
 		opacity: 1;
 	}
 
-	.backdrop.incoming {
-		z-index: 2;
+	.backdrop.settled.in.crossing {
 		opacity: 0;
 		transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
-	.backdrop.incoming:not(.ready) {
-		transition: none;
+	.backdrop.settled.matched {
+		opacity: 0;
+		visibility: hidden;
+	}
+
+	.backdrop.incoming {
+		z-index: 2;
+		opacity: 0;
+		/* Keep transition armed so ready→opacity:1 always crossfades (not a same-frame skip). */
+		transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.backdrop.incoming.ready {
 		opacity: 1;
 	}
 
-	.stage.instant .foreground,
-	.backdrop.incoming.instant {
+	.stage.instant .foreground {
 		transition: none;
 	}
 

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+	BACKDROP_RECIPE_BLUR,
+	BACKDROP_RECIPE_EDGE,
+	BACKDROP_RECIPE_QUALITY,
 	backdropFromImage,
+	backdropUrlWarm,
 	flipTransform,
 	morphFromOrigin,
 	morphRest
@@ -43,5 +47,15 @@ describe('viewer morph math', () => {
 describe('backdropFromImage', () => {
 	it('no-ops without a DOM document', () => {
 		expect(backdropFromImage({} as CanvasImageSource, 40, 60)).toBeNull();
+	});
+
+	it('exposes recipe constants aligned with backdrop-v1', () => {
+		expect(BACKDROP_RECIPE_EDGE).toBe(48);
+		expect(BACKDROP_RECIPE_BLUR).toBe(6);
+		expect(BACKDROP_RECIPE_QUALITY).toBe(0.4);
+	});
+
+	it('treats empty urls as cold without a DOM Image', () => {
+		expect(backdropUrlWarm('')).toBe(false);
 	});
 });
