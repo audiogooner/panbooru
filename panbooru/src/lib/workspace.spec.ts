@@ -2,25 +2,19 @@ import * as devalue from 'devalue';
 import { describe, expect, it } from 'vitest';
 import { back, forward, replaceTag, restoreNavigation } from '#lib/navigation.ts';
 import {
-	LEASE_STALE_MS,
+	SHARED_WORKSPACE_KEY,
 	WORKSPACE_KEY,
-	WORKSPACE_KEEP_LIMIT,
+	adoptSharedWorkspace,
 	checkpointFromViews,
-	chooseWorkspace,
-	emptyCatalog,
-	emptyLeases,
 	explorationViews,
-	importLegacyCheckpoint,
 	patchCheckpoint,
-	readCatalog,
 	readCheckpoint,
 	readHistoryCursor,
+	readSharedWorkspace,
 	rehydrateHistory,
-	releaseLease,
 	retainTemporaryAlbums,
 	saveCheckpoint,
-	saveWorkspaceRecord,
-	type WorkspaceRecord,
+	writeSharedWorkspace,
 	type WorkspaceStore
 } from '#lib/workspace.ts';
 
@@ -349,7 +343,7 @@ describe('workspace checkpoint', () => {
 	});
 });
 
-function mapStore() {
+function browserStore() {
 	const items = new Map<string, string>();
 	let fail = false;
 	return {
@@ -370,230 +364,107 @@ function mapStore() {
 	};
 }
 
-function contentRecord(id: string, updatedAt: number, query: string): WorkspaceRecord {
+function searchCheckpoint(query: string) {
 	return {
-		id,
-		updatedAt,
-		checkpoint: {
-			version: 1,
-			views: [
-				{
-					id: `${id}-view`,
-					query,
-					sort: 'Newest',
-					posts: [],
-					postId: null,
-					mode: 'gallery',
-					scroll: 0,
-					scrollAnchor: null
-				}
-			],
-			activeId: `${id}-view`,
-			temporaryAlbums: [],
-			closed: []
-		}
+		version: 1 as const,
+		views: [
+			{
+				id: 'view',
+				query,
+				sort: 'Newest',
+				posts: [],
+				postId: null,
+				mode: 'gallery' as const,
+				scroll: 0,
+				scrollAnchor: null
+			}
+		],
+		activeId: 'view',
+		temporaryAlbums: [],
+		closed: []
 	};
 }
 
-describe('workspace catalog', () => {
-	it('adopts the newest free workspace and skips one a live tab holds', () => {
-		const now = 1_000;
-		const catalog = {
-			version: 1 as const,
-			workspaces: [contentRecord('older', 1, 'older'), contentRecord('newer', 50, 'newer')]
-		};
-		const before = JSON.stringify(catalog);
-		const claim = chooseWorkspace({
-			session: { tabId: null, workspaceId: null },
-			catalog,
-			leases: {
-				version: 1,
-				leases: [{ workspaceId: 'newer', tabId: 'open-tab', seenAt: now, released: false }]
-			},
-			now,
-			contested: false,
-			nextTabId: 'new-tab',
-			nextWorkspaceId: 'blank'
-		});
-		expect(claim.workspaceId).toBe('older');
-		expect(claim.checkpoint?.views[0]?.query).toBe('older');
-		expect(JSON.stringify(catalog)).toBe(before);
-	});
-
-	it('reclaims this tab on reload instead of a newer free workspace', () => {
-		const claim = chooseWorkspace({
-			session: { tabId: 'tab-a', workspaceId: 'mine' },
-			catalog: {
-				version: 1,
-				workspaces: [contentRecord('mine', 1, 'mine'), contentRecord('newer', 9, 'newer')]
-			},
-			leases: {
-				version: 1,
-				leases: [{ workspaceId: 'mine', tabId: 'tab-a', seenAt: 1, released: true }]
-			},
-			now: 20,
-			contested: false,
-			nextTabId: 'other',
-			nextWorkspaceId: 'other-ws'
-		});
-		expect(claim.workspaceId).toBe('mine');
-		expect(claim.tabId).toBe('tab-a');
-		expect(claim.created).toBe(false);
-	});
-
-	it('gives a contested duplicate the next free workspace', () => {
-		const claim = chooseWorkspace({
-			session: { tabId: 'tab-a', workspaceId: 'live' },
-			catalog: {
-				version: 1,
-				workspaces: [contentRecord('live', 5, 'live'), contentRecord('free', 4, 'free')]
-			},
-			leases: {
-				version: 1,
-				leases: [{ workspaceId: 'live', tabId: 'tab-a', seenAt: 100, released: false }]
-			},
-			now: 100,
-			contested: true,
-			nextTabId: 'tab-b',
-			nextWorkspaceId: 'blank'
-		});
-		expect(claim.tabId).toBe('tab-b');
-		expect(claim.workspaceId).toBe('free');
-		expect(claim.checkpoint?.views[0]?.query).toBe('free');
-	});
-
-	it('starts blank when a contested tab has no other free workspace', () => {
-		const claim = chooseWorkspace({
-			session: { tabId: 'tab-a', workspaceId: 'live' },
-			catalog: { version: 1, workspaces: [contentRecord('live', 5, 'live')] },
-			leases: {
-				version: 1,
-				leases: [{ workspaceId: 'live', tabId: 'tab-a', seenAt: 100, released: false }]
-			},
-			now: 100,
-			contested: true,
-			nextTabId: 'tab-b',
-			nextWorkspaceId: 'blank'
-		});
-		expect(claim.created).toBe(true);
-		expect(claim.workspaceId).toBe('blank');
-		expect(claim.checkpoint).toBeNull();
-	});
-
-	it('treats a released or stale lease as free', () => {
-		const catalog = { version: 1 as const, workspaces: [contentRecord('water', 10, 'water')] };
-		const released = releaseLease(
-			{
-				version: 1,
-				leases: [{ workspaceId: 'water', tabId: 'tab-a', seenAt: 10, released: false }]
-			},
-			'water',
-			'tab-a',
-			20
-		);
-		expect(released.leases[0]).toMatchObject({ released: true, seenAt: 20 });
-		const adopted = chooseWorkspace({
-			session: { tabId: null, workspaceId: null },
-			catalog,
-			leases: released,
-			now: 20,
-			contested: false,
-			nextTabId: 'tab-b',
-			nextWorkspaceId: 'blank'
-		});
-		expect(adopted.workspaceId).toBe('water');
-
-		const stale = chooseWorkspace({
-			session: { tabId: null, workspaceId: null },
-			catalog,
-			leases: {
-				version: 1,
-				leases: [{ workspaceId: 'water', tabId: 'tab-a', seenAt: 0, released: false }]
-			},
-			now: LEASE_STALE_MS + 1,
-			contested: false,
-			nextTabId: 'tab-c',
-			nextWorkspaceId: 'blank'
-		});
-		expect(stale.workspaceId).toBe('water');
-	});
-
-	it('does not take a workspace another live tab holds, even when this tab remembers it', () => {
-		const claim = chooseWorkspace({
-			session: { tabId: 'tab-a', workspaceId: 'mine' },
-			catalog: { version: 1, workspaces: [contentRecord('mine', 5, 'mine')] },
-			leases: {
-				version: 1,
-				leases: [{ workspaceId: 'mine', tabId: 'tab-b', seenAt: 100, released: false }]
-			},
-			now: 100,
-			contested: false,
-			nextTabId: 'tab-c',
-			nextWorkspaceId: 'blank'
-		});
-		expect(claim.created).toBe(true);
-		expect(claim.workspaceId).not.toBe('mine');
-	});
-
-	it('keeps each workspace body when two tabs save', () => {
-		const store = mapStore();
-		saveWorkspaceRecord(store, emptyLeases(), contentRecord('a', 1, 'alpha'), 1);
-		saveWorkspaceRecord(store, emptyLeases(), contentRecord('b', 2, 'beta'), 2);
-		const queries = readCatalog(store)
-			.workspaces.map((workspace) => workspace.checkpoint.views[0]?.query)
-			.sort();
-		expect(queries).toEqual(['alpha', 'beta']);
-	});
-
-	it('drops the oldest free workspace past the keep limit and never a leased one', () => {
-		const store = mapStore();
-		let leases = emptyLeases();
-		for (let index = 0; index < WORKSPACE_KEEP_LIMIT; index++) {
-			saveWorkspaceRecord(
-				store,
-				leases,
-				contentRecord(`w${index}`, index + 1, `q${index}`),
-				index + 1
-			);
-		}
-		leases = {
-			version: 1,
-			leases: [{ workspaceId: 'w0', tabId: 'tab', seenAt: 100, released: false }]
-		};
-		saveWorkspaceRecord(store, leases, contentRecord('new', 100, 'new'), 100);
-		const ids = readCatalog(store).workspaces.map((workspace) => workspace.id);
-		expect(ids).toHaveLength(WORKSPACE_KEEP_LIMIT);
-		expect(ids).toContain('w0');
-		expect(ids).toContain('new');
-		expect(ids).not.toContain('w1');
-	});
-
-	it('drops an empty workspace before a saved search when storage is full', () => {
-		const store = mapStore();
-		saveWorkspaceRecord(
-			store,
-			emptyLeases(),
-			{
-				id: 'empty',
-				updatedAt: 0,
-				checkpoint: { version: 1, views: [], activeId: '', temporaryAlbums: [], closed: [] }
-			},
-			0
-		);
-		saveWorkspaceRecord(store, emptyLeases(), contentRecord('kept', 2, 'kept'), 2);
-		store.failNext();
-		const saved = saveWorkspaceRecord(store, emptyLeases(), contentRecord('added', 3, 'added'), 3);
+describe('shared workspace', () => {
+	it('writes and reads one set of searches', () => {
+		const store = browserStore();
+		const saved = writeSharedWorkspace(store, searchCheckpoint('forest'), 20);
 		expect(saved.persisted).toBe(true);
-		const ids = readCatalog(store).workspaces.map((workspace) => workspace.id);
-		expect(ids).not.toContain('empty');
-		expect(ids).toEqual(expect.arrayContaining(['kept', 'added']));
+		expect(readSharedWorkspace(store)?.checkpoint.views[0]?.query).toBe('forest');
+		expect(readSharedWorkspace(store)?.updatedAt).toBe(20);
 	});
 
-	it('imports a legacy session checkpoint once into an empty catalog', () => {
-		const legacy = contentRecord('old', 1, 'water').checkpoint;
-		const imported = importLegacyCheckpoint(emptyCatalog(), legacy, 10, 'migrated');
-		expect(imported?.workspaces[0]?.checkpoint.views[0]?.query).toBe('water');
-		expect(importLegacyCheckpoint(imported ?? emptyCatalog(), legacy, 11, 'again')).toBeNull();
-		expect(importLegacyCheckpoint(emptyCatalog(), null, 11, 'again')).toBeNull();
+	it('leaves an unchanged checkpoint in place', () => {
+		const store = browserStore();
+		writeSharedWorkspace(store, searchCheckpoint('forest'), 20);
+		const again = writeSharedWorkspace(store, searchCheckpoint('forest'), 40);
+		expect(again.shared.updatedAt).toBe(20);
+		expect(store.getItem(SHARED_WORKSPACE_KEY)).toContain('"updatedAt":20');
+	});
+
+	it('keeps the shared record ahead of an older per-tab catalog', () => {
+		const local = browserStore();
+		const session = browserStore();
+		writeSharedWorkspace(local, searchCheckpoint('shared'), 5);
+		local.setItem(
+			'panbooru-workspaces',
+			JSON.stringify({ version: 1, entries: [{ id: 'old', updatedAt: 99 }] })
+		);
+		local.setItem('panbooru-workspaces:old', JSON.stringify(searchCheckpoint('catalog')));
+		const adopted = adoptSharedWorkspace(local, session, 100);
+		expect(adopted?.checkpoint.views[0]?.query).toBe('shared');
+	});
+
+	it('adopts the newest per-tab catalog when nothing is shared yet', () => {
+		const local = browserStore();
+		const session = browserStore();
+		local.setItem(
+			'panbooru-workspaces',
+			JSON.stringify({
+				version: 1,
+				entries: [
+					{ id: 'older', updatedAt: 1 },
+					{ id: 'newer', updatedAt: 8 }
+				]
+			})
+		);
+		local.setItem('panbooru-workspaces:older', JSON.stringify(searchCheckpoint('older')));
+		local.setItem('panbooru-workspaces:newer', JSON.stringify(searchCheckpoint('newer')));
+		const adopted = adoptSharedWorkspace(local, session, 10);
+		expect(adopted?.checkpoint.views[0]?.query).toBe('newer');
+		expect(readSharedWorkspace(local)?.checkpoint.views[0]?.query).toBe('newer');
+	});
+
+	it('prefers an unflushed search over a catalog body', () => {
+		const local = browserStore();
+		const session = browserStore();
+		local.setItem(
+			'panbooru-workspaces',
+			JSON.stringify({ version: 1, entries: [{ id: 'old', updatedAt: 4 }] })
+		);
+		local.setItem('panbooru-workspaces:old', JSON.stringify(searchCheckpoint('catalog')));
+		session.setItem('panbooru-workspace-pending', JSON.stringify(searchCheckpoint('pending')));
+		const adopted = adoptSharedWorkspace(local, session, 9);
+		expect(adopted?.checkpoint.views[0]?.query).toBe('pending');
+		expect(session.getItem('panbooru-workspace-pending')).toBeNull();
+	});
+
+	it('imports a legacy session checkpoint once', () => {
+		const local = browserStore();
+		const session = browserStore();
+		saveCheckpoint(session, { views: [searchCheckpoint('water').views[0]!], activeId: 'view' });
+		const adopted = adoptSharedWorkspace(local, session, 3);
+		expect(adopted?.checkpoint.views[0]?.query).toBe('water');
+		expect(session.getItem(WORKSPACE_KEY)).toBeNull();
+		expect(adoptSharedWorkspace(local, session, 4)?.updatedAt).toBe(3);
+	});
+
+	it('keeps the checkpoint in memory when storage is full', () => {
+		const store = browserStore();
+		store.failNext();
+		const saved = writeSharedWorkspace(store, searchCheckpoint('forest'), 2);
+		expect(saved.persisted).toBe(false);
+		expect(saved.shared.checkpoint.views[0]?.query).toBe('forest');
+		expect(store.getItem(SHARED_WORKSPACE_KEY)).toBeNull();
 	});
 });

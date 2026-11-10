@@ -66,19 +66,16 @@ test('a closed tab leaves its search for the next tab, and reload keeps it', asy
 	).toBeVisible();
 });
 
-test('two open tabs keep separate searches', async ({ page, context }) => {
+test('open tabs share the same searches', async ({ page, context }) => {
 	await ownerSession(page);
 	const first = await search(page, 'landscape sunset');
 	const secondPage = await context.newPage();
 	await secondPage.goto('/');
 	const second = secondPage.getByRole('navigation', { name: 'Main navigation' });
-	await expect(second.getByRole('button', { name: 'landscape sunset', exact: true })).toHaveCount(
-		0
-	);
+	await expect(second.getByRole('button', { name: 'landscape sunset', exact: true })).toBeVisible();
 
-	await secondPage.getByLabel('Tags').fill('forest');
-	await secondPage.getByRole('button', { name: 'Search', exact: true }).click();
-	await expect(second.getByRole('button', { name: 'forest', exact: true })).toBeVisible();
+	await second.getByRole('button', { name: 'New search' }).click();
+	await expect(second.getByRole('button', { name: 'Untitled search', exact: true })).toBeVisible();
+	await expect(first.getByRole('button', { name: 'Untitled search', exact: true })).toBeVisible();
 	await expect(first.getByRole('button', { name: 'landscape sunset', exact: true })).toBeVisible();
-	await expect(first.getByRole('button', { name: 'forest', exact: true })).toHaveCount(0);
 });

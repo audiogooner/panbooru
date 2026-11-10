@@ -22,12 +22,12 @@ import {
 	explorationViews,
 	patchCheckpoint,
 	readHistoryCursor,
-	rehydrateHistory
+	rehydrateHistory,
+	type WorkspaceCheckpoint
 } from '#lib/workspace.ts';
 import {
 	bootWorkspace,
 	onWorkspaceReplaced,
-	settleWorkspace,
 	workspaceBacking
 } from '#lib/workspace-session.svelte.ts';
 
@@ -55,6 +55,7 @@ let historyEpoch = 0;
 /** Shallow replace queued until the client router has started. */
 let pendingHistoryReplace: { url: string; cursor: number; epoch: number } | null = null;
 let historyRehydrateBound = false;
+let applyingShared = false;
 
 if (browser) {
 	try {
@@ -67,16 +68,9 @@ if (browser) {
 		historyCursor = 0;
 	}
 	onWorkspaceReplaced((checkpoint) => {
-		const next = checkpoint?.views.length
-			? restoreNavigation({
-					views: explorationViews(checkpoint.views),
-					activeId: checkpoint.activeId
-				})
-			: createNavigation();
-		apply(next);
+		showShared(checkpoint);
 	});
 	persistWorkspace();
-	void settleWorkspace();
 }
 
 function flushPendingHistoryReplace() {
@@ -114,9 +108,37 @@ function apply(next: NavigationState) {
 	persistWorkspace();
 }
 
+/** Another browser tab wrote the shared searches. Do not write them back. */
+function showShared(checkpoint: WorkspaceCheckpoint | null) {
+	applyingShared = true;
+	try {
+		if (!checkpoint?.views.length) {
+			const next = createNavigation();
+			navigation.views = next.views;
+			navigation.activeId = next.activeId;
+			navigation.past = [];
+			navigation.future = [];
+			return;
+		}
+		const views = explorationViews(checkpoint.views);
+		const shape = views.map((view) => `${view.id}\0${view.query}`).join('\n');
+		const previous = navigation.views.map((view) => `${view.id}\0${view.query}`).join('\n');
+		navigation.views = views;
+		navigation.activeId = views.some((view) => view.id === checkpoint.activeId)
+			? checkpoint.activeId
+			: views[0]!.id;
+		if (shape !== previous) {
+			navigation.past = [];
+			navigation.future = [];
+		}
+	} finally {
+		applyingShared = false;
+	}
+}
+
 /** Write the open views. Closed views and temporary albums already in this workspace stay put. */
 export function persistWorkspace() {
-	if (!browser) return;
+	if (!browser || applyingShared) return;
 	try {
 		patchCheckpoint(workspaceBacking(), checkpointFromViews(navigation.views, navigation.activeId));
 	} catch {
@@ -124,7 +146,7 @@ export function persistWorkspace() {
 	}
 }
 
-/** Record the active view's gallery scroll for this tab's workspace. */
+/** Record the active view's gallery scroll on the shared workspace. */
 export function rememberGalleryScroll(scroll: number, anchor: ScrollAnchor | null = null) {
 	const id = navigation.activeId;
 	navigation.views = navigation.views.map((view) =>
