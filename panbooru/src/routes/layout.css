@@ -186,7 +186,8 @@ h1 {
 	position: fixed;
 	top: 0;
 	left: 0;
-	z-index: 60;
+	/* Below the viewer (z-index 20) so the close morph is never covered as the rail slides in. */
+	z-index: 15;
 	height: 100%;
 	width: var(--side) !important;
 	transform: translateX(-100%);
@@ -201,6 +202,13 @@ h1 {
 
 .app:has(.viewer.closing) .sidebar {
 	animation: panbooru-sidebar-in var(--viewer-morph-ms) var(--viewer-morph-ease) both;
+}
+
+/* Freeze gallery scroll while the shared-element flight runs so the origin tile doesn't move. */
+.app:has(.viewer.entering) .scroll,
+.app:has(.viewer.closing) .scroll,
+.app:has(.viewer.morphing) .scroll {
+	overflow: hidden;
 }
 
 @keyframes panbooru-sidebar-out {

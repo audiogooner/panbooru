@@ -18,7 +18,6 @@
 		MORPH_EASE,
 		MORPH_MS,
 		type MorphRect,
-		flipTransform,
 		prefersReducedMotion,
 		readGalleryTileRect
 	} from '#lib/viewer-morph.ts';
@@ -117,6 +116,8 @@
 	let chromeIn = $state(!wantsEnter);
 	let morphTimer = 0;
 	let morphAnim: Animation | null = null;
+	/** Enter FLIP finished; keep the overlay up until the real stage has painted. */
+	let enterMorphDone = $state(false);
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
 	let albumPickerFor = $state<string | null>(null);
@@ -298,12 +299,13 @@
 		};
 	}
 
-	function morphSrc() {
+	function morphSrc(phase: MorphPhase = 'enter') {
 		if (playableVideo) {
 			return withRecipe(mediaBase, imageSrc ? 'thumb' : 'display') || previewSrc;
 		}
+		// Leave must match the gallery tile (thumb). Enter can use a sharper source once ready.
+		if (phase === 'leave') return previewSrc;
 		if (loadedId === post.id) return foreground;
-		if (previewReady) return previewSrc;
 		return previewSrc;
 	}
 
@@ -314,23 +316,44 @@
 		morphTimer = 0;
 	}
 
-	function playFlip(node: HTMLElement, flight: MorphFlight) {
-		const { from, to, phase } = flight;
-		const flip = flipTransform(from, to);
-		node.style.left = `${to.left}px`;
-		node.style.top = `${to.top}px`;
-		node.style.width = `${to.width}px`;
-		node.style.height = `${to.height}px`;
-		const inverted = `translate(${flip.tx}px, ${flip.ty}px) scale(${flip.sx}, ${flip.sy})`;
-		const identity = 'translate(0px, 0px) scale(1, 1)';
+	function setTileHidden(postId: string, hidden: boolean) {
+		const tile = document.querySelector(
+			`.gallery .tile[data-post="${CSS.escape(postId)}"]`
+		);
+		if (!(tile instanceof HTMLElement)) return;
+		if (hidden) {
+			tile.style.setProperty('visibility', 'hidden', 'important');
+			tile.style.setProperty('opacity', '0', 'important');
+		} else {
+			tile.style.removeProperty('visibility');
+			tile.style.removeProperty('opacity');
+		}
+	}
+
+	/**
+	 * Animate the morph layer's box (not a non-uniform scale). Scaling a destination-sized
+	 * layer made portrait posts look like a crushed vertical sliver during the flight.
+	 */
+	function playFlip(node: HTMLElement, from: MorphRect, to: MorphRect, phase: MorphPhase) {
+		node.style.left = `${from.left}px`;
+		node.style.top = `${from.top}px`;
+		node.style.width = `${from.width}px`;
+		node.style.height = `${from.height}px`;
+		node.style.borderRadius = phase === 'enter' ? '14px' : '0px';
 		return node.animate(
 			[
 				{
-					transform: inverted,
+					left: `${from.left}px`,
+					top: `${from.top}px`,
+					width: `${from.width}px`,
+					height: `${from.height}px`,
 					borderRadius: phase === 'enter' ? '14px' : '0px'
 				},
 				{
-					transform: identity,
+					left: `${to.left}px`,
+					top: `${to.top}px`,
+					width: `${to.width}px`,
+					height: `${to.height}px`,
 					borderRadius: phase === 'enter' ? '0px' : '14px'
 				}
 			],
@@ -342,17 +365,32 @@
 		const flight = morph;
 		if (!flight) return;
 		cancelMorphAnim();
-		const anim = playFlip(node, flight);
+		setTileHidden(post.id, true);
+		// Re-read the live tile box at play time so scroll/layout settled after open still matches.
+		const liveTo =
+			flight.phase === 'leave' ? readGalleryTileRect(post.id) : null;
+		const from = flight.from;
+		const to = liveTo ?? flight.to;
+		const anim = playFlip(node, from, to, flight.phase);
 		morphAnim = anim;
 		let cancelled = false;
 		void anim.finished.then(() => {
 			if (cancelled || !alive || morph !== flight) return;
 			morphAnim = null;
 			if (flight.phase === 'enter') {
-				morph = null;
-				entering = false;
+				enterMorphDone = true;
+				// Don't leave the overlay stuck if media never arrives.
+				morphTimer = window.setTimeout(() => {
+					morphTimer = 0;
+					if (!alive || morph !== flight || !enterMorphDone) return;
+					setTileHidden(post.id, false);
+					morph = null;
+					entering = false;
+					enterMorphDone = false;
+				}, 2500);
 				return;
 			}
+			setTileHidden(post.id, false);
 			morph = null;
 			onclose();
 		});
@@ -370,7 +408,9 @@
 		if (document.fullscreenElement) void document.exitFullscreen();
 		chromeIn = false;
 		entering = false;
+		enterMorphDone = false;
 		if (prefersReducedMotion()) {
+			setTileHidden(post.id, false);
 			onclose();
 			return;
 		}
@@ -378,27 +418,28 @@
 		albumPickerFor = null;
 		hideChrome();
 		cancelMorphAnim();
+		setTileHidden(post.id, true);
 		const from = displayRect();
 		const to = readGalleryTileRect(post.id);
 		if (!to || !from) {
 			veil = 1;
 			requestAnimationFrame(() => {
-				requestAnimationFrame(() => {
-					if (!alive) return;
-					veil = 0;
-				});
+				if (!alive) return;
+				veil = 0;
 			});
 			morphTimer = window.setTimeout(() => {
 				morphTimer = 0;
+				setTileHidden(post.id, false);
 				onclose();
-			}, 200);
+			}, MORPH_MS);
 			return;
 		}
+		// Morph over a fading veil so the tile flight stays visible against the returning gallery.
 		veil = 1;
+		morph = { phase: 'leave', from, to, src: morphSrc('leave') };
 		requestAnimationFrame(() => {
 			if (!alive) return;
 			veil = 0;
-			morph = { phase: 'leave', from, to, src: morphSrc() };
 		});
 	}
 
@@ -974,6 +1015,7 @@
 		return () => {
 			alive = false;
 			cancelMorphAnim();
+			setTileHidden(post.id, false);
 			window.clearTimeout(chromeTimer);
 			window.clearTimeout(zoomTimer);
 			window.clearTimeout(revealTimer);
@@ -1101,6 +1143,7 @@
 			return;
 		}
 		entering = true;
+		enterMorphDone = false;
 		veil = 0;
 		chromeIn = false;
 		morph = {
@@ -1109,12 +1152,24 @@
 			to,
 			src: morphSrc() || previewSrc
 		};
-		// Fade the veil and slide chrome while the FLIP runs — not after it ends.
+		// Fade the veil and slide chrome while the box morph runs.
 		requestAnimationFrame(() => {
 			if (!alive || closing) return;
 			veil = 1;
 			chromeIn = true;
 		});
+	});
+
+	// Keep the enter overlay until the fitted stage (or video) is actually showing.
+	$effect(() => {
+		if (!enterMorphDone || closing) return;
+		if (morph?.phase !== 'enter') return;
+		if (loading && !playableVideo) return;
+		if (playableVideo && loadedId !== post.id && !unsupportedVideo) return;
+		setTileHidden(post.id, false);
+		morph = null;
+		entering = false;
+		enterMorphDone = false;
 	});
 </script>
 
@@ -1511,15 +1566,16 @@
 		position: absolute;
 		z-index: 5;
 		overflow: hidden;
-		transform-origin: 0 0;
 		pointer-events: none;
-		will-change: transform, border-radius;
+		will-change: left, top, width, height, border-radius;
+		background: #191e25;
 	}
 
 	.morph-layer img {
 		display: block;
 		width: 100%;
 		height: 100%;
+		max-width: none;
 		object-fit: cover;
 	}
 
