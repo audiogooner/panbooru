@@ -1379,9 +1379,13 @@
 		display: flex;
 		flex: 1;
 		align-items: center;
+		align-self: stretch;
 		gap: 10px;
 		min-width: 0;
+		margin: -8px 0 -8px -10px;
+		padding: 8px 10px;
 		text-align: left;
+		cursor: pointer;
 	}
 
 	.nav-row .row-main.artist {
@@ -1427,9 +1431,13 @@
 	.close {
 		display: flex;
 		flex: none;
+		align-items: center;
+		align-self: stretch;
 		visibility: hidden;
-		padding: 1px;
+		margin: -8px -10px -8px 0;
+		padding: 8px 10px;
 		color: #999;
+		cursor: pointer;
 	}
 
 	.nav-row:hover .close,
