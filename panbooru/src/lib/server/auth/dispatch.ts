@@ -199,6 +199,8 @@ async function readBody(request: Request) {
 		return JSON.parse(text) as {
 			token?: unknown;
 			password?: unknown;
+			currentPassword?: unknown;
+			newPassword?: unknown;
 			userId?: unknown;
 			apiKey?: unknown;
 		};
@@ -290,6 +292,37 @@ export async function dispatch(request: Request, services: AppServices): Promise
 			.where(eq(sessions.tokenHash, session.tokenHash))
 			.run();
 		return jsonData({ authenticated: false });
+	}
+
+	if (request.method === 'POST' && url.pathname === '/api/auth/password') {
+		const blocked = limited(services, 'password');
+		if (blocked) return blocked;
+		const session = readSession(request, services);
+		if (!session) return jsonError('UNAUTHORIZED', 'Session required', 401);
+		const body = await readBody(request);
+		const currentPassword = typeof body?.currentPassword === 'string' ? body.currentPassword : '';
+		const newPassword = typeof body?.newPassword === 'string' ? body.newPassword : '';
+		const existing = services.db.select().from(owner).get();
+		if (!existing || !(await verifyPassword(existing.passwordHash, currentPassword))) {
+			return jsonError('UNAUTHORIZED', 'Current password is incorrect', 401);
+		}
+		if (newPassword.length < minimumPassword) {
+			return jsonError('BAD_REQUEST', 'Password must be at least 12 characters', 400);
+		}
+		const now = services.now();
+		services.db
+			.update(owner)
+			.set({
+				passwordHash: await hashPassword(newPassword),
+				authVersion: existing.authVersion + 1,
+				updatedAt: now
+			})
+			.where(eq(owner.singleton, 1))
+			.run();
+		services.db.update(sessions).set({ revoked: 1 }).where(eq(sessions.revoked, 0)).run();
+		const response = jsonData({ authenticated: true });
+		response.headers.set('set-cookie', cookie(issueSession(services), services.secureCookie));
+		return response;
 	}
 
 	if (request.method === 'GET' && url.pathname === '/api/ready') {

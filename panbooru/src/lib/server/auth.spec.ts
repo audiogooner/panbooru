@@ -118,6 +118,82 @@ describe('owner auth', () => {
 		expect(replay.status).toBe(401);
 	});
 
+	it('changes the owner password, rotates the session, and rejects the old password', async () => {
+		const { app, dataDir } = await boot();
+		const { cookie: setupCookie } = await claim(app, dataDir);
+		const firstCookie = setupCookie.split(';')[0];
+
+		const otherLogin = await app.fetch('/api/auth/login', {
+			method: 'POST',
+			headers: { ...originHeaders(app), 'content-type': 'application/json' },
+			body: JSON.stringify({ password })
+		});
+		expect(otherLogin.status).toBe(200);
+		const otherCookie = (otherLogin.headers.get('set-cookie') ?? '').split(';')[0];
+
+		const nextPassword = 'fresh-correct-horse';
+		const denied = await app.fetch('/api/auth/password', {
+			method: 'POST',
+			headers: {
+				...originHeaders(app),
+				cookie: firstCookie,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				currentPassword: 'wrong-password-value',
+				newPassword: nextPassword
+			})
+		});
+		expect(denied.status).toBe(401);
+
+		const short = await app.fetch('/api/auth/password', {
+			method: 'POST',
+			headers: {
+				...originHeaders(app),
+				cookie: firstCookie,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({ currentPassword: password, newPassword: 'too-short' })
+		});
+		expect(short.status).toBe(400);
+
+		const changed = await app.fetch('/api/auth/password', {
+			method: 'POST',
+			headers: {
+				...originHeaders(app),
+				cookie: firstCookie,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({ currentPassword: password, newPassword: nextPassword })
+		});
+		expect(changed.status).toBe(200);
+		const rotated = (changed.headers.get('set-cookie') ?? '').split(';')[0];
+		expect(rotated).toBeTruthy();
+		expect(rotated).not.toBe(firstCookie);
+
+		expect((await app.fetch('/api/auth/session', { headers: { cookie: firstCookie } })).status).toBe(
+			401
+		);
+		expect((await app.fetch('/api/auth/session', { headers: { cookie: otherCookie } })).status).toBe(
+			401
+		);
+		expect((await app.fetch('/api/auth/session', { headers: { cookie: rotated } })).status).toBe(200);
+
+		const oldLogin = await app.fetch('/api/auth/login', {
+			method: 'POST',
+			headers: { ...originHeaders(app), 'content-type': 'application/json' },
+			body: JSON.stringify({ password })
+		});
+		expect(oldLogin.status).toBe(401);
+
+		const newLogin = await app.fetch('/api/auth/login', {
+			method: 'POST',
+			headers: { ...originHeaders(app), 'content-type': 'application/json' },
+			body: JSON.stringify({ password: nextPassword })
+		});
+		expect(newLogin.status).toBe(200);
+	});
+
 	it('expires sessions after idle and absolute lifetimes', async () => {
 		let now = Date.parse('2026-01-01T00:00:00Z');
 		const idle = await boot(() => now);

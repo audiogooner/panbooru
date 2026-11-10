@@ -22,6 +22,7 @@
 		{ id: 'playback', label: 'Playback' },
 		{ id: 'downloads', label: 'Downloads' },
 		{ id: 'shortcuts', label: 'Keyboard shortcuts' },
+		{ id: 'account', label: 'Account' },
 		{ id: 'gelbooru', label: 'Gelbooru connection' }
 	] as const;
 
@@ -159,6 +160,13 @@
 	let validating = false;
 	let acceptCredentialProbe = true;
 
+	let currentPassword = $state('');
+	let newPassword = $state('');
+	let confirmPassword = $state('');
+	let passwordError = $state('');
+	let passwordSaved = $state(false);
+	let changing = false;
+
 	let rowHeight = $state(ROW_DEFAULT);
 	let minWidth = $state(1920);
 	let minHeight = $state(1080);
@@ -174,6 +182,7 @@
 	let jumpTarget: string | null = null;
 	let jumpTimer = 0;
 	let noticeTimer = 0;
+	let passwordNoticeTimer = 0;
 	let captureCleanup: (() => void) | null = null;
 	let rowWriteOk = true;
 
@@ -523,6 +532,48 @@
 		}
 	}
 
+	async function changePassword() {
+		if (changing) return;
+		passwordError = '';
+		passwordSaved = false;
+		if (newPassword.length < 12) {
+			passwordError = 'Password must be at least 12 characters';
+			return;
+		}
+		if (newPassword !== confirmPassword) {
+			passwordError = 'New passwords do not match';
+			return;
+		}
+		changing = true;
+		try {
+			const response = await fetch('/api/auth/password', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ currentPassword, newPassword })
+			});
+			if (!response.ok) {
+				const body = (await response.json().catch(() => null)) as {
+					message?: string;
+					code?: string;
+				} | null;
+				passwordError = body?.message || 'Could not change password';
+				return;
+			}
+			currentPassword = '';
+			newPassword = '';
+			confirmPassword = '';
+			passwordSaved = true;
+			window.clearTimeout(passwordNoticeTimer);
+			passwordNoticeTimer = window.setTimeout(() => {
+				passwordSaved = false;
+			}, 1600);
+		} catch {
+			passwordError = 'Could not change password';
+		} finally {
+			changing = false;
+		}
+	}
+
 	async function logout() {
 		await fetch('/api/auth/logout', { method: 'POST' });
 		window.location.href = '/login';
@@ -541,6 +592,7 @@
 	onDestroy(() => {
 		clearTimeout(jumpTimer);
 		clearTimeout(noticeTimer);
+		clearTimeout(passwordNoticeTimer);
 		captureCleanup?.();
 	});
 </script>
@@ -715,7 +767,52 @@
 						</span>
 					</div>
 				{/each}
-			{:else}
+			{:else if section.id === 'account'}
+				<p class="note">
+					The owner password must be at least 12 characters. Changing it signs out other sessions.
+				</p>
+				<div class="setting-row">
+					<label for="current-password">Current password</label>
+					<input
+						id="current-password"
+						name="current-password"
+						type="password"
+						autocomplete="current-password"
+						bind:value={currentPassword}
+					/>
+				</div>
+				<div class="setting-row">
+					<label for="new-password">New password</label>
+					<input
+						id="new-password"
+						name="new-password"
+						type="password"
+						autocomplete="new-password"
+						bind:value={newPassword}
+					/>
+				</div>
+				<div class="setting-row">
+					<label for="confirm-password">Confirm new password</label>
+					<input
+						id="confirm-password"
+						name="confirm-password"
+						type="password"
+						autocomplete="new-password"
+						bind:value={confirmPassword}
+					/>
+				</div>
+				<div class="setting-row">
+					<div class="credential-status">
+						{#if passwordSaved}
+							<p class="status">Password updated</p>
+						{/if}
+						{#if passwordError}
+							<p class="alert" role="alert">{passwordError}</p>
+						{/if}
+					</div>
+					<button type="button" onclick={changePassword}>Change password</button>
+				</div>
+			{:else if section.id === 'gelbooru'}
 				<p class="note">
 					Enter a user ID and API key, then press Validate. A successful check saves the
 					credentials. A failed check keeps the previous ones. The stored key is never shown.
