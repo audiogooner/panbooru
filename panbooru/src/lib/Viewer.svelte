@@ -108,12 +108,12 @@
 		typeof window !== 'undefined' &&
 		!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 	/**
-	 * Immediate backdrop from the gallery thumb (same CSS blur/brightness as the real one).
-	 * Prefer the warm thumb URL so filter math matches recipe=backdrop; fall back to a paint.
+	 * Immediate backdrop that matches recipe=backdrop: paint the gallery thumb with the same
+	 * 48px + blur(6) treatment the server uses (library posts keep the thumb URL).
 	 */
-	const seedThumb = untrack(() => {
+	const seedBackdrop = untrack(() => {
 		const base = imageSrc || (post.mediaRef ? `/api/media/${post.mediaRef}` : '');
-		if (base) return withRecipe(base, 'thumb');
+		if (imageSrc && base) return withRecipe(base, 'thumb');
 		return backdropFromGalleryThumb(post.id) || '';
 	});
 	let morph = $state<MorphFlight | null>(null);
@@ -128,7 +128,7 @@
 	let morphAnim: Animation | null = null;
 	/** Enter FLIP finished; keep the overlay up until the real stage has painted. */
 	let enterMorphDone = $state(false);
-	/** Thumb-seeded backdrop fades in with the open (starts off so it doesn't pop). */
+	/** Seeded backdrop fades in with the open (starts off so it doesn't pop). */
 	let backdropIn = $state(false);
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
@@ -174,8 +174,8 @@
 	let chromeTimer = 0;
 	let zoomTimer = 0;
 	let revealTimer = 0;
-	// Seed from the thumb so the blurred field is present for the open morph, not after load.
-	let settledBackdrop = $state(seedThumb);
+	// Seed a backdrop-v1 look so the field matches the final recipe during open morph.
+	let settledBackdrop = $state(seedBackdrop);
 	let reveal = $state<{ id: string; instant: boolean } | null>(null);
 	let foregroundWarm = $state(false);
 	let alive = true;
@@ -207,6 +207,15 @@
 	const blurBackdrop = $derived(
 		imageSrc ? withRecipe(mediaBase, 'thumb') : withRecipe(mediaBase, 'backdrop')
 	);
+
+	// Kick the real backdrop decode immediately so the post-morph swap is a no-op when warm.
+	$effect(() => {
+		const url = blurBackdrop;
+		if (!url || typeof Image === 'undefined') return;
+		const img = new Image();
+		img.decoding = 'async';
+		img.src = url;
+	});
 	const dragPost = $derived<DragPost>({
 		remoteId: post.id,
 		tags: post.tags,
@@ -220,7 +229,7 @@
 	const sequence = $derived(posts.length ? posts : [post]);
 	const index = $derived(sequence.findIndex((item) => item.id === post.id));
 	const loading = $derived(!unsupportedVideo && loadedId !== post.id);
-	/** Real backdrop waits until the open morph is done so the thumb stand-in doesn't get overwritten mid-flight. */
+	/** Real backdrop waits until the open morph is done so the painted stand-in isn't overwritten mid-flight. */
 	const backdropReady = $derived(!loading && !entering && morph?.phase !== 'enter');
 	// Keep the thumb under the foreground until decode + paint, then dismiss for single-.full locators.
 	const showPreview = $derived(previewSrc !== foreground && previewCleared !== post.id);
@@ -782,7 +791,7 @@
 			revealTimer = 0;
 			if (!alive || post?.id !== id) return;
 			previewCleared = id;
-			// Keep the thumb-painted stand-in until the open morph has finished.
+			// Keep the painted stand-in until the open morph has finished.
 			if (entering || morph?.phase === 'enter') {
 				revealTimer = window.setTimeout(apply, 48);
 				return;

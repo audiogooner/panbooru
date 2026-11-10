@@ -79,29 +79,30 @@ export function prefersReducedMotion() {
 }
 
 /**
- * Paint a tiny JPEG from the gallery thumb (or any warm image) for an immediate viewer backdrop.
- * The viewer still applies its CSS blur/brightness; this only avoids waiting on recipe=backdrop.
+ * Approximate server `backdrop-v1`: fit inside 48×48, blur(6). The viewer then applies the
+ * same CSS blur/brightness as it does for recipe=backdrop, so open morph matches the final look.
  */
 export function backdropFromImage(image: CanvasImageSource, width: number, height: number) {
 	if (typeof document === 'undefined') return null;
 	const w = Math.max(1, Math.round(width));
 	const h = Math.max(1, Math.round(height));
 	if (w < 1 || h < 1) return null;
-	// Large enough that the viewer's CSS blur still keeps chroma (64px washed to mud).
-	const edge = 192;
-	const scale = Math.max(edge / w, edge / h);
+	const maxEdge = 48;
+	const scale = Math.min(1, maxEdge / w, maxEdge / h);
 	const dw = Math.max(1, Math.round(w * scale));
 	const dh = Math.max(1, Math.round(h * scale));
+	const pad = 8;
 	const canvas = document.createElement('canvas');
-	canvas.width = edge;
-	canvas.height = edge;
+	canvas.width = dw + pad * 2;
+	canvas.height = dh + pad * 2;
 	const ctx = canvas.getContext('2d');
 	if (!ctx) return null;
-	ctx.fillStyle = '#191e25';
-	ctx.fillRect(0, 0, edge, edge);
-	ctx.drawImage(image, (edge - dw) / 2, (edge - dh) / 2, dw, dh);
+	ctx.fillStyle = '#000';
+	ctx.fillRect(0, 0, canvas.width, canvas.height);
+	ctx.filter = 'blur(6px)';
+	ctx.drawImage(image, pad, pad, dw, dh);
 	try {
-		return canvas.toDataURL('image/jpeg', 0.85);
+		return canvas.toDataURL('image/jpeg', 0.4);
 	} catch {
 		return null;
 	}
