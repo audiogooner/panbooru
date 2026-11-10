@@ -316,9 +316,16 @@
 		ontag(tag, event, tagAnchor(event));
 	}
 
+	function preventTagMiddle(event: MouseEvent) {
+		// Browsers start autoscroll on middle mousedown inside overflow:auto panels.
+		// Cancel that here so auxclick can open a background view instead.
+		if (event.button === 1) event.preventDefault();
+	}
+
 	function onTagAux(tag: string, event: MouseEvent) {
 		if (event.button !== 1) return;
 		event.preventDefault();
+		event.stopPropagation();
 		ontag(tag, event, tagAnchor(event));
 	}
 
@@ -1210,6 +1217,7 @@
 													class="tag-row"
 													aria-label={tag.name}
 													onclick={(event) => ontag(tag.name, event, tagAnchor(event))}
+													onmousedown={preventTagMiddle}
 													onauxclick={(event) => onTagAux(tag.name, event)}
 													oncontextmenu={(event) => onTagMenu(tag.name, event)}
 													onkeydown={(event) => onTagKey(tag.name, event)}
