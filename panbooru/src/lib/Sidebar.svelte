@@ -1375,7 +1375,7 @@
 		text-decoration: none;
 	}
 
-	.row-main {
+	.nav-row .row-main {
 		display: flex;
 		flex: 1;
 		align-items: center;
@@ -1428,7 +1428,7 @@
 		border-radius: 6px;
 	}
 
-	.close {
+	.nav-row .close {
 		display: flex;
 		flex: none;
 		align-items: center;
