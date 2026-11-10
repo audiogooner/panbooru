@@ -1,0 +1,15 @@
+# Local library, secrets, and generated output
+panbooru/node_modules
+panbooru/.svelte-kit
+panbooru/build
+panbooru/.output
+panbooru/data
+panbooru/test-results
+panbooru/.env
+panbooru/.env.*
+!panbooru/.env.example
+!panbooru/.env.test
+
+# Frozen copies. The current product docs are the markdown files directly under plan/.
+plan/*-Bundle
+plan/panbooru-ui

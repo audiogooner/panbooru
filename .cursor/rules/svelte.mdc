@@ -1,0 +1,26 @@
+---
+description: Svelte 5 runes conventions for Panbooru UI
+globs:
+  - panbooru/src/**/*.svelte
+  - panbooru/src/**/*.svelte.ts
+alwaysApply: false
+---
+
+# Svelte 5
+
+Runes are on for application files (`runes` in `panbooru/vite.config.ts`). Do not add legacy components or Svelte stores.
+
+```svelte
+let { src, fit = 'cover' }: { src: string; fit?: 'cover' | 'intrinsic' } = $props();
+let shown = $state<string | null>(null);
+const ready = $derived(shown === src);
+```
+
+- DOM setup uses `{@attach fn}` and returns a teardown from the attachment. Prefer that over `onMount` for listeners.
+- Class lists are arrays: `class={['thumb', fit, ready && 'ready']}`.
+- Shared client state lives in a `*.svelte.ts` module next to the feature (`workspace.ts`, `selection.svelte.ts`, `explore.svelte.ts`). Tab-session state stays in memory. The localStorage exceptions are the preference keys named in `src/routes/layout.css`.
+- Do not import `#lib/server/**` from a `.svelte` file. Load data in `+page.server.ts` or `+layout.server.ts`.
+- Component CSS stays in a scoped `<style>` block. Shared tokens stay in `src/routes/layout.css`.
+- Imports use `#lib/...` and keep the extension: `#lib/Thumbnail.svelte`, `#lib/shortcuts.ts`.
+
+After editing, run the Svelte autofixer, then `npm run check` from `panbooru/`.

@@ -1,0 +1,22 @@
+---
+description: Vitest and Playwright conventions
+globs:
+  - panbooru/**/*.spec.ts
+  - panbooru/**/*.e2e.ts
+alwaysApply: false
+---
+
+# Tests
+
+Unit tests are colocated `*.spec.ts` files. Vitest runs server specs in Node and `*.svelte.spec.ts` in Chromium. `expect` is configured with `requireAssertions: true`, so every test needs an assertion.
+
+Playwright files are `*.e2e.ts`. `playwright.config.ts` builds the app, serves it with `scripts/e2e-preview.mjs` on port 4173, and uses one worker. `a11y.e2e.ts` runs only in the `chromium-keyboard` and `firefox` projects.
+
+From `panbooru/`:
+
+- `npm run test:unit -- --run src/lib/server/library/save.spec.ts`
+- `npx playwright test src/routes/library.e2e.ts`
+
+`npm test` also installs browsers. Use it before finishing a broad change, not on every edit.
+
+Cover the changed behavior in the nearest existing spec. Reset end-to-end library state through `e2e-reset`. Do not delete the developer's data directory.

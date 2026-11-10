@@ -1,0 +1,18 @@
+---
+description: Server, auth, schema, and secret boundaries
+globs:
+  - panbooru/src/lib/server/**/*.ts
+  - panbooru/src/hooks.server.ts
+alwaysApply: false
+---
+
+# Server
+
+Route JSON through `dispatch()` in `src/lib/server/auth/dispatch.ts`. `hooks.server.ts` already calls it after session setup. Do not add a `+server.ts` for a new API route.
+
+- Success and failure bodies come from `jsonData` and `jsonError` in `#lib/server/http/json.ts`. Both send `cache-control: private, no-store`.
+- Pages other than `/login` and `/setup` require a session. Owner passwords are at least 12 characters and hashed with argon2. Only the session token hash is stored.
+- Gelbooru API keys are ciphertext via `#lib/server/secrets/cipher.ts` and `PANBOORU_SECRET_PATH`. Responses must not include the key, ciphertext, nonce, tag, or key path. Do not mint a new master key when `source_credentials` already has a row.
+- A schema change bumps `SCHEMA_VERSION` and adds a migration in `#lib/server/db/index.ts`. Startup throws when `schema_migrations` is newer than this build.
+- Upstream image hosts must be in `allowHosts`. Do not fetch an arbitrary URL from post metadata.
+- Log lines that may contain a query string go through `redactSecrets`. Tests boot with `startApp({ dataDir, secretPath, fixtureOrigin })` in a temp directory, never the developer's `./data`.
