@@ -15,8 +15,10 @@
 	import { neighborPrefetch, withRecipe } from '#lib/prefetch.ts';
 	import { ensureTagMeta, missingTagNames, readTagMeta, type TagMeta } from '#lib/tag-meta.ts';
 	import {
+		MORPH_EASE,
 		MORPH_MS,
 		type MorphRect,
+		flipTransform,
 		prefersReducedMotion,
 		readGalleryTileRect
 	} from '#lib/viewer-morph.ts';
@@ -30,6 +32,7 @@
 		wheelZoom,
 		type Zoom
 	} from '#lib/zoom.ts';
+	import { untrack } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
 	import { fade, scale } from 'svelte/transition';
 
@@ -92,26 +95,36 @@
 		origin?: MorphRect | null;
 	} = $props();
 	type MorphPhase = 'enter' | 'leave';
-	let morph = $state<{
+	type MorphFlight = {
 		phase: MorphPhase;
-		rect: MorphRect;
-		radius: number;
+		from: MorphRect;
+		to: MorphRect;
 		src: string;
-		live: boolean;
-	} | null>(null);
-	let veil = $state(0);
+	};
+	// Capture once at mount — later prop updates must not restart the open morph.
+	const seedOrigin = untrack(() => origin);
+	const wantsEnter =
+		seedOrigin != null &&
+		typeof window !== 'undefined' &&
+		!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	let morph = $state<MorphFlight | null>(null);
+	let veil = $state(wantsEnter ? 0 : 1);
 	let enterStarted = false;
 	let closing = $state(false);
-	/** Top chrome (back + icon bar) slides in after open morph / out before close. */
-	let chromeIn = $state(false);
+	/** True from first paint when opening with a tile origin so the sidebar can slide out. */
+	let entering = $state(wantsEnter);
+	/** Top chrome (back + icon bar) slides in with the open morph / out on close. */
+	let chromeIn = $state(!wantsEnter);
 	let morphTimer = 0;
+	let morphAnim: Animation | null = null;
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
 	let albumPickerFor = $state<string | null>(null);
 	let albumButton = $state<HTMLElement | null>(null);
 	let root = $state<HTMLElement | null>(null);
-	let viewportWidth = $state(1);
-	let viewportHeight = $state(1);
+	// Seed from the window so the open morph can start on the first frame, not after layout.
+	let viewportWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1);
+	let viewportHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 1);
 	let manualZoom = $state<Zoom | null>(null);
 	let manualId = $state('');
 	let dragging = $state(false);
@@ -294,10 +307,69 @@
 		return previewSrc;
 	}
 
+	function cancelMorphAnim() {
+		morphAnim?.cancel();
+		morphAnim = null;
+		window.clearTimeout(morphTimer);
+		morphTimer = 0;
+	}
+
+	function playFlip(node: HTMLElement, flight: MorphFlight) {
+		const { from, to, phase } = flight;
+		const flip = flipTransform(from, to);
+		node.style.left = `${to.left}px`;
+		node.style.top = `${to.top}px`;
+		node.style.width = `${to.width}px`;
+		node.style.height = `${to.height}px`;
+		const inverted = `translate(${flip.tx}px, ${flip.ty}px) scale(${flip.sx}, ${flip.sy})`;
+		const identity = 'translate(0px, 0px) scale(1, 1)';
+		return node.animate(
+			[
+				{
+					transform: inverted,
+					borderRadius: phase === 'enter' ? '14px' : '0px'
+				},
+				{
+					transform: identity,
+					borderRadius: phase === 'enter' ? '0px' : '14px'
+				}
+			],
+			{ duration: MORPH_MS, easing: MORPH_EASE, fill: 'forwards' }
+		);
+	}
+
+	function morphLayer(node: HTMLElement) {
+		const flight = morph;
+		if (!flight) return;
+		cancelMorphAnim();
+		const anim = playFlip(node, flight);
+		morphAnim = anim;
+		let cancelled = false;
+		void anim.finished.then(() => {
+			if (cancelled || !alive || morph !== flight) return;
+			morphAnim = null;
+			if (flight.phase === 'enter') {
+				morph = null;
+				entering = false;
+				return;
+			}
+			morph = null;
+			onclose();
+		});
+		return () => {
+			cancelled = true;
+			if (morphAnim === anim) {
+				anim.cancel();
+				morphAnim = null;
+			}
+		};
+	}
+
 	function requestClose() {
 		if (closing) return;
 		if (document.fullscreenElement) void document.exitFullscreen();
 		chromeIn = false;
+		entering = false;
 		if (prefersReducedMotion()) {
 			onclose();
 			return;
@@ -305,7 +377,7 @@
 		closing = true;
 		albumPickerFor = null;
 		hideChrome();
-		window.clearTimeout(morphTimer);
+		cancelMorphAnim();
 		const from = displayRect();
 		const to = readGalleryTileRect(post.id);
 		if (!to || !from) {
@@ -322,19 +394,11 @@
 			}, 200);
 			return;
 		}
-		const src = morphSrc();
-		morph = { phase: 'leave', rect: from, radius: 0, src, live: false };
 		veil = 1;
 		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				if (!alive) return;
-				morph = { phase: 'leave', rect: to, radius: 14, src, live: true };
-				veil = 0;
-				morphTimer = window.setTimeout(() => {
-					morphTimer = 0;
-					onclose();
-				}, MORPH_MS + 32);
-			});
+			if (!alive) return;
+			veil = 0;
+			morph = { phase: 'leave', from, to, src: morphSrc() };
 		});
 	}
 
@@ -909,12 +973,11 @@
 		root = node;
 		return () => {
 			alive = false;
+			cancelMorphAnim();
 			window.clearTimeout(chromeTimer);
 			window.clearTimeout(zoomTimer);
 			window.clearTimeout(revealTimer);
-			window.clearTimeout(morphTimer);
 			revealTimer = 0;
-			morphTimer = 0;
 			if (root === node) root = null;
 		};
 	}
@@ -1019,40 +1082,38 @@
 	$effect(() => {
 		void viewportWidth;
 		void viewportHeight;
-		void origin;
 		void post.id;
 		if (enterStarted || closing) return;
 		if (viewportWidth < 32 || viewportHeight < 32) return;
 		enterStarted = true;
-		const openOrigin = origin ?? null;
+		const openOrigin = seedOrigin;
 		if (!openOrigin || prefersReducedMotion()) {
 			veil = 1;
 			chromeIn = true;
+			entering = false;
 			return;
 		}
 		const to = displayRect();
 		if (!to) {
 			veil = 1;
 			chromeIn = true;
+			entering = false;
 			return;
 		}
-		const src = morphSrc() || previewSrc;
-		morph = { phase: 'enter', rect: openOrigin, radius: 14, src, live: false };
+		entering = true;
 		veil = 0;
 		chromeIn = false;
+		morph = {
+			phase: 'enter',
+			from: openOrigin,
+			to,
+			src: morphSrc() || previewSrc
+		};
+		// Fade the veil and slide chrome while the FLIP runs — not after it ends.
 		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				if (!alive || closing) return;
-				morph = { phase: 'enter', rect: to, radius: 0, src, live: true };
-				veil = 1;
-				window.clearTimeout(morphTimer);
-				morphTimer = window.setTimeout(() => {
-					morphTimer = 0;
-					if (!alive || closing) return;
-					morph = null;
-					chromeIn = true;
-				}, MORPH_MS + 32);
-			});
+			if (!alive || closing) return;
+			veil = 1;
+			chromeIn = true;
 		});
 	});
 </script>
@@ -1068,8 +1129,8 @@
 			'hide-controls': chromeHidden,
 			morphing: morph !== null,
 			closing,
-			'media-hidden': morph !== null || closing,
-			entering: morph?.phase === 'enter',
+			'media-hidden': morph !== null || closing || entering,
+			entering,
 			leaving: morph?.phase === 'leave',
 			'chrome-in': chromeIn
 		}
@@ -1093,15 +1154,7 @@
 		aria-hidden="true"
 	/>
 	{#if morph}
-		<div
-			class={['morph-layer', morph.live && 'live', morph.phase]}
-			style:left="{morph.rect.left}px"
-			style:top="{morph.rect.top}px"
-			style:width="{morph.rect.width}px"
-			style:height="{morph.rect.height}px"
-			style:border-radius="{morph.radius}px"
-			aria-hidden="true"
-		>
+		<div class={['morph-layer', morph.phase]} aria-hidden="true" {@attach morphLayer}>
 			<img src={morph.src} alt="" draggable="false" />
 		</div>
 	{/if}
@@ -1458,17 +1511,9 @@
 		position: absolute;
 		z-index: 5;
 		overflow: hidden;
+		transform-origin: 0 0;
 		pointer-events: none;
-		will-change: left, top, width, height, border-radius;
-	}
-
-	.morph-layer.live {
-		transition:
-			left 420ms cubic-bezier(0.16, 1, 0.3, 1),
-			top 420ms cubic-bezier(0.16, 1, 0.3, 1),
-			width 420ms cubic-bezier(0.16, 1, 0.3, 1),
-			height 420ms cubic-bezier(0.16, 1, 0.3, 1),
-			border-radius 420ms cubic-bezier(0.16, 1, 0.3, 1);
+		will-change: transform, border-radius;
 	}
 
 	.morph-layer img {
@@ -1709,7 +1754,6 @@
 		}
 
 		.veil,
-		.morph-layer.live,
 		.back,
 		.viewer-bar {
 			transition: none !important;

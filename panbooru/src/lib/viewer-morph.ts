@@ -38,6 +38,19 @@ export function readGalleryTileRect(postId: string): MorphRect | null {
 }
 
 /**
+ * Transform (origin 0 0) that maps a box laid out at `to` so it visually matches `from`.
+ * Animate that transform to identity for a FLIP shared-element morph.
+ */
+export function flipTransform(from: MorphRect, to: MorphRect): MorphTransform {
+	return {
+		tx: from.left - to.left,
+		ty: from.top - to.top,
+		sx: from.width / Math.max(to.width, 1),
+		sy: from.height / Math.max(to.height, 1)
+	};
+}
+
+/**
  * Map a stage whose box is at `placed` with natural `size` so it visually matches `origin`.
  * Resting state is `{ tx: 0, ty: 0, sx: scale, sy: scale }` with the usual `scale(zoom)`.
  */
