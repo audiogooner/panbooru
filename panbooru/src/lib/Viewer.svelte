@@ -40,6 +40,8 @@
 	const DETAILS_MIN = 160;
 	const DETAILS_MAX = 560;
 	const DETAILS_PANEL = 282;
+	/** Slide the details panel and the fitted image together. */
+	const PANEL_SLIDE_MS = 380;
 	const tagGroups = [
 		['artist', 'Artist'],
 		['character', 'Character'],
@@ -136,6 +138,10 @@
 	let backdropIn = $state(false);
 	let tagsOpen = $state(false);
 	let detailsWidth = $state(DETAILS_PANEL);
+	/** Reserved width on the right. Animated so the panel and the fitted image share one slide. */
+	let reservedRight = $state(0);
+	let panelSlideFrame = 0;
+	let panelSlideGen = 0;
 	let albumPickerFor = $state<string | null>(null);
 	let albumButton = $state<HTMLElement | null>(null);
 	let root = $state<HTMLElement | null>(null);
@@ -195,9 +201,9 @@
 
 	const image = $derived({ width: Math.max(post.width, 1), height: Math.max(post.height, 1) });
 	const manual = $derived(manualZoom !== null && manualId === post.id);
-	const frameWidth = $derived(
-		Math.max(1, viewportWidth - (manual || !tagsOpen ? 0 : detailsWidth))
-	);
+	/** Stay mounted through the close slide, then drop the panel once it is offscreen. */
+	const panelMounted = $derived(tagsOpen || reservedRight > 0);
+	const frameWidth = $derived(Math.max(1, viewportWidth - (manual ? 0 : reservedRight)));
 	const zoom = $derived(
 		manual && manualZoom
 			? retainZoom(manualZoom, image, { width: viewportWidth, height: viewportHeight })
@@ -209,8 +215,7 @@
 	const top = $derived(viewportHeight / 2 + zoom.y - (image.height * zoom.scale) / 2);
 	const mediaBase = $derived(imageSrc || `/api/media/${post.mediaRef}`);
 	const foreground = $derived(
-		imageSrc ||
-			(needsOriginal(image, zoom.scale) ? mediaBase : withRecipe(mediaBase, 'display'))
+		imageSrc || (needsOriginal(image, zoom.scale) ? mediaBase : withRecipe(mediaBase, 'display'))
 	);
 	const previewSrc = $derived(withRecipe(mediaBase, 'thumb'));
 	// Library originals only serve thumb derivatives; remote media has recipe=backdrop.
@@ -246,9 +251,7 @@
 	const showPreview = $derived(previewSrc !== foreground && previewCleared !== post.id);
 	const previewReady = $derived(previewId === post.id);
 	const ghost = $derived(
-		loading && held && held.id !== post.id && !(showPreview && previewReady)
-			? held
-			: null
+		loading && held && held.id !== post.id && !(showPreview && previewReady) ? held : null
 	);
 	const canPan = $derived(
 		image.width * zoom.scale > (manual ? viewportWidth : frameWidth) + 0.5 ||
@@ -352,9 +355,7 @@
 	}
 
 	function setTileHidden(postId: string, hidden: boolean) {
-		const tile = document.querySelector(
-			`.gallery .tile[data-post="${CSS.escape(postId)}"]`
-		);
+		const tile = document.querySelector(`.gallery .tile[data-post="${CSS.escape(postId)}"]`);
 		if (!(tile instanceof HTMLElement)) return;
 		if (hidden) {
 			tile.style.setProperty('visibility', 'hidden', 'important');
@@ -402,8 +403,7 @@
 		cancelMorphAnim();
 		setTileHidden(post.id, true);
 		// Re-read the live tile box at play time so scroll/layout settled after open still matches.
-		const liveTo =
-			flight.phase === 'leave' ? readGalleryTileRect(post.id) : null;
+		const liveTo = flight.phase === 'leave' ? readGalleryTileRect(post.id) : null;
 		const from = flight.from;
 		const to = liveTo ?? flight.to;
 		const anim = playFlip(node, from, to, flight.phase);
@@ -604,13 +604,26 @@
 		ontag(tag, event, tagAnchor(event));
 	}
 
+	function stopPanelSlide() {
+		panelSlideGen += 1;
+		window.cancelAnimationFrame(panelSlideFrame);
+		panelSlideFrame = 0;
+	}
+
+	function commitDetailsWidth(next: number) {
+		detailsWidth = Math.min(DETAILS_MAX, Math.max(DETAILS_MIN, next));
+		if (!tagsOpen) return;
+		stopPanelSlide();
+		reservedRight = detailsWidth;
+	}
+
 	function resizeDetails(event: KeyboardEvent) {
 		if (typing(event)) return;
 		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
 		event.preventDefault();
 		event.stopPropagation();
 		const delta = event.key === 'ArrowRight' ? 16 : -16;
-		detailsWidth = Math.min(DETAILS_MAX, Math.max(DETAILS_MIN, detailsWidth + delta));
+		commitDetailsWidth(detailsWidth + delta);
 	}
 
 	function toggleAlbumPicker() {
@@ -627,10 +640,7 @@
 		const originX = event.clientX;
 		const origin = detailsWidth;
 		const drag = (moveEvent: PointerEvent) => {
-			detailsWidth = Math.min(
-				DETAILS_MAX,
-				Math.max(DETAILS_MIN, origin + originX - moveEvent.clientX)
-			);
+			commitDetailsWidth(origin + originX - moveEvent.clientX);
 		};
 		const stop = () => {
 			handle.removeEventListener('pointermove', drag);
@@ -642,8 +652,48 @@
 		handle.addEventListener('pointercancel', stop);
 	}
 
+	function releasePanelFocus() {
+		const active = document.activeElement;
+		const host = root;
+		if (!(active instanceof HTMLElement) || !host) return;
+		if (!host.querySelector('.right-panel')?.contains(active)) return;
+		host.querySelector<HTMLButtonElement>('button[aria-label="Show tags"]')?.focus();
+	}
+
+	function slidePanel(open: boolean) {
+		stopPanelSlide();
+		const gen = panelSlideGen;
+		const destination = () => (open ? detailsWidth : 0);
+		if (prefersReducedMotion()) {
+			reservedRight = destination();
+			return;
+		}
+		const from = reservedRight;
+		// Wait a frame so the resting pose paints, then advance on a capped step. A slow
+		// frame must not spend the whole slide before it is visible.
+		panelSlideFrame = window.requestAnimationFrame(() => {
+			if (gen !== panelSlideGen || !alive) return;
+			let elapsed = 0;
+			let last = performance.now();
+			const step = (now: number) => {
+				if (gen !== panelSlideGen || !alive) return;
+				elapsed += Math.min(32, Math.max(0, now - last));
+				last = now;
+				const dest = destination();
+				const t = Math.min(1, elapsed / PANEL_SLIDE_MS);
+				reservedRight = t === 1 ? dest : from + (dest - from) * cubicOut(t);
+				if (t < 1) panelSlideFrame = window.requestAnimationFrame(step);
+				else panelSlideFrame = 0;
+			};
+			panelSlideFrame = window.requestAnimationFrame(step);
+		});
+	}
+
 	function toggleDetails() {
-		tagsOpen = !tagsOpen;
+		const next = !tagsOpen;
+		if (!next) releasePanelFocus();
+		tagsOpen = next;
+		slidePanel(next);
 	}
 
 	function onkeydown(event: KeyboardEvent) {
@@ -1082,6 +1132,7 @@
 		root = node;
 		return () => {
 			alive = false;
+			stopPanelSlide();
 			cancelMorphAnim();
 			setTileHidden(post.id, false);
 			window.clearTimeout(chromeTimer);
@@ -1133,9 +1184,7 @@
 	}
 
 	async function downloadOriginal() {
-		const response = await fetch(
-			`${mediaBase}${mediaBase.includes('?') ? '&' : '?'}download=1`
-		);
+		const response = await fetch(`${mediaBase}${mediaBase.includes('?') ? '&' : '?'}download=1`);
 		if (!response.ok) return;
 		const blob = await response.blob();
 		const url = URL.createObjectURL(blob);
@@ -1279,7 +1328,7 @@
 	class={[
 		'viewer',
 		{
-			'panel-open': tagsOpen,
+			'panel-open': panelMounted,
 			'image-over-info': manual,
 			'hide-controls': chromeHidden,
 			morphing: morph !== null,
@@ -1290,7 +1339,8 @@
 			'chrome-in': chromeIn
 		}
 	]}
-	style:--view-right={tagsOpen ? `${detailsWidth}px` : '0px'}
+	style:--view-right={`${reservedRight}px`}
+	style:--panel-width={`${detailsWidth}px`}
 	style:--veil={veil}
 	{@attach viewerRoot}
 	{@attach neighborPrefetch(sequence, post.id, direction, Boolean(imageSrc))}
@@ -1567,8 +1617,8 @@
 			/>
 		{/key}
 	{/if}
-	{#if tagsOpen}
-		<aside class="right-panel">
+	{#if panelMounted}
+		<aside class="right-panel" inert={!tagsOpen} aria-hidden={!tagsOpen}>
 			{#key post.id}
 				<div class="right-scroll" {@attach trackTags}>
 					<div class="details glass">
@@ -1738,7 +1788,8 @@
 		/* Above the black veil so a thumb-seeded blur is visible during open morph. */
 		z-index: 1;
 		opacity: 0;
-		transition: opacity var(--viewer-morph-ms, 420ms) var(--viewer-morph-ease, cubic-bezier(0.16, 1, 0.3, 1));
+		transition: opacity var(--viewer-morph-ms, 420ms)
+			var(--viewer-morph-ease, cubic-bezier(0.16, 1, 0.3, 1));
 	}
 
 	.backdrop.settled.in {
@@ -2030,7 +2081,8 @@
 		pointer-events: none;
 		transition:
 			opacity var(--viewer-morph-ms, 420ms) var(--viewer-morph-ease, cubic-bezier(0.16, 1, 0.3, 1)),
-			transform var(--viewer-morph-ms, 420ms) var(--viewer-morph-ease, cubic-bezier(0.16, 1, 0.3, 1));
+			transform var(--viewer-morph-ms, 420ms)
+				var(--viewer-morph-ease, cubic-bezier(0.16, 1, 0.3, 1));
 	}
 
 	.viewer.chrome-in .back,
@@ -2115,7 +2167,9 @@
 		top: 64px;
 		right: 8px;
 		bottom: 8px;
-		width: calc(var(--view-right) - 8px);
+		width: calc(var(--panel-width) - 8px);
+		transform: translateX(calc(var(--panel-width) - var(--view-right)));
+		will-change: transform;
 	}
 
 	.right-scroll {
