@@ -1,7 +1,10 @@
 /** Scroll `#scroll` so the row containing the post sits in the vertical center below the search bar. */
 export function scrollGalleryToPost(postId: string): boolean {
 	const scroller = document.getElementById('scroll');
-	const tile = scroller?.querySelector<HTMLElement>(`[data-post="${CSS.escape(postId)}"]`);
+	// Prefer gallery tiles — the viewer also stamps data-post on its media.
+	const tile =
+		scroller?.querySelector<HTMLElement>(`.gallery .tile[data-post="${CSS.escape(postId)}"]`) ??
+		null;
 	if (!scroller || !tile) return false;
 	const row = tile.closest('.row');
 	if (!(row instanceof HTMLElement)) return false;

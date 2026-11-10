@@ -440,7 +440,9 @@
 		if (mode !== 'viewer' || !postId) return;
 		if (!scrollGalleryToPost(postId)) return;
 		const scroller = document.getElementById('scroll');
-		const tile = scroller?.querySelector<HTMLElement>(`[data-post="${CSS.escape(postId)}"]`);
+		const tile = scroller?.querySelector<HTMLElement>(
+			`.gallery .tile[data-post="${CSS.escape(postId)}"]`
+		);
 		if (!scroller || !tile) return;
 		const line = scroller.getBoundingClientRect().top + anchorInset;
 		const offset = tile.getBoundingClientRect().top - line;
