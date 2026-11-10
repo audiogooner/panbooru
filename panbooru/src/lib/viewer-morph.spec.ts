@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { flipTransform, morphFromOrigin, morphRest } from '#lib/viewer-morph.ts';
+import {
+	backdropFromImage,
+	flipTransform,
+	morphFromOrigin,
+	morphRest
+} from '#lib/viewer-morph.ts';
 
 describe('viewer morph math', () => {
 	it('maps a stage onto the origin tile with transform-origin 0 0', () => {
@@ -32,5 +37,11 @@ describe('viewer morph math', () => {
 
 	it('rests at a uniform zoom scale', () => {
 		expect(morphRest(0.5)).toEqual({ tx: 0, ty: 0, sx: 0.5, sy: 0.5 });
+	});
+});
+
+describe('backdropFromImage', () => {
+	it('no-ops without a DOM document', () => {
+		expect(backdropFromImage({} as CanvasImageSource, 40, 60)).toBeNull();
 	});
 });

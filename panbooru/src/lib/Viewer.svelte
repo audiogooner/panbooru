@@ -17,6 +17,7 @@
 	import {
 		MORPH_EASE,
 		MORPH_MS,
+		backdropFromGalleryThumb,
 		type MorphRect,
 		prefersReducedMotion,
 		readGalleryTileRect
@@ -106,6 +107,13 @@
 		seedOrigin != null &&
 		typeof window !== 'undefined' &&
 		!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	/** Immediate backdrop: paint from the decoded gallery thumb, else the warm thumb URL. */
+	const seedThumb = untrack(() => {
+		const painted = backdropFromGalleryThumb(post.id);
+		if (painted) return painted;
+		const base = imageSrc || (post.mediaRef ? `/api/media/${post.mediaRef}` : '');
+		return base ? withRecipe(base, 'thumb') : '';
+	});
 	let morph = $state<MorphFlight | null>(null);
 	let veil = $state(wantsEnter ? 0 : 1);
 	let enterStarted = false;
@@ -162,7 +170,8 @@
 	let chromeTimer = 0;
 	let zoomTimer = 0;
 	let revealTimer = 0;
-	let settledBackdrop = $state('');
+	// Seed from the thumb so the blurred field is present for the open morph, not after load.
+	let settledBackdrop = $state(seedThumb);
 	let reveal = $state<{ id: string; instant: boolean } | null>(null);
 	let foregroundWarm = $state(false);
 	let alive = true;
@@ -207,6 +216,8 @@
 	const sequence = $derived(posts.length ? posts : [post]);
 	const index = $derived(sequence.findIndex((item) => item.id === post.id));
 	const loading = $derived(!unsupportedVideo && loadedId !== post.id);
+	/** Real backdrop waits until the open morph is done so the thumb stand-in doesn't get overwritten mid-flight. */
+	const backdropReady = $derived(!loading && !entering && morph?.phase !== 'enter');
 	// Keep the thumb under the foreground until decode + paint, then dismiss for single-.full locators.
 	const showPreview = $derived(previewSrc !== foreground && previewCleared !== post.id);
 	const previewReady = $derived(previewId === post.id);
@@ -767,6 +778,11 @@
 			revealTimer = 0;
 			if (!alive || post?.id !== id) return;
 			previewCleared = id;
+			// Keep the thumb-painted stand-in until the open morph has finished.
+			if (entering || morph?.phase === 'enter') {
+				revealTimer = window.setTimeout(apply, 48);
+				return;
+			}
 			settledBackdrop = backdrop;
 		};
 		if (delay === 0) apply();
@@ -1201,10 +1217,26 @@
 >
 	<div class="veil" style:opacity={veil} aria-hidden="true"></div>
 	{#if settledBackdrop}
-		<img class="backdrop settled" src={settledBackdrop} alt="" aria-hidden="true" />
+		<img
+			class={[
+				'backdrop',
+				'settled',
+				{
+					provisional:
+						settledBackdrop.startsWith('data:') || settledBackdrop.includes('recipe=thumb')
+				}
+			]}
+			src={settledBackdrop}
+			alt=""
+			aria-hidden="true"
+		/>
 	{/if}
 	<img
-		class={['backdrop', 'incoming', { ready: !loading, instant: !loading && revealInstant }]}
+		class={[
+			'backdrop',
+			'incoming',
+			{ ready: backdropReady, instant: backdropReady && revealInstant }
+		]}
 		src={blurBackdrop}
 		alt=""
 		aria-hidden="true"
@@ -1589,8 +1621,9 @@
 		visibility: hidden;
 	}
 
-	.viewer.morphing .backdrop,
-	.viewer.closing .backdrop {
+	/* Keep the thumb-blurred backdrop through enter; hide only while closing back to the gallery. */
+	.viewer.closing .backdrop,
+	.viewer.leaving .backdrop {
 		opacity: 0 !important;
 		transition: none !important;
 	}
@@ -1620,11 +1653,17 @@
 	}
 
 	.backdrop.settled {
-		z-index: 0;
+		/* Above the black veil so a thumb-seeded blur is visible during open morph. */
+		z-index: 1;
+	}
+
+	/* Thumb stand-in: keep enough brightness that chroma reads during the morph. */
+	.backdrop.settled.provisional {
+		filter: blur(40px) brightness(0.42) saturate(1.05);
 	}
 
 	.backdrop.incoming {
-		z-index: 1;
+		z-index: 2;
 		opacity: 0;
 		transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1);
 	}

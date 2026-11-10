@@ -77,3 +77,49 @@ export function prefersReducedMotion() {
 	if (typeof window === 'undefined') return false;
 	return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
+
+/**
+ * Paint a tiny JPEG from the gallery thumb (or any warm image) for an immediate viewer backdrop.
+ * The viewer still applies its CSS blur/brightness; this only avoids waiting on recipe=backdrop.
+ */
+export function backdropFromImage(image: CanvasImageSource, width: number, height: number) {
+	if (typeof document === 'undefined') return null;
+	const w = Math.max(1, Math.round(width));
+	const h = Math.max(1, Math.round(height));
+	if (w < 1 || h < 1) return null;
+	// Large enough that the viewer's CSS blur still keeps chroma (64px washed to mud).
+	const edge = 192;
+	const scale = Math.max(edge / w, edge / h);
+	const dw = Math.max(1, Math.round(w * scale));
+	const dh = Math.max(1, Math.round(h * scale));
+	const canvas = document.createElement('canvas');
+	canvas.width = edge;
+	canvas.height = edge;
+	const ctx = canvas.getContext('2d');
+	if (!ctx) return null;
+	ctx.fillStyle = '#191e25';
+	ctx.fillRect(0, 0, edge, edge);
+	ctx.drawImage(image, (edge - dw) / 2, (edge - dh) / 2, dw, dh);
+	try {
+		return canvas.toDataURL('image/jpeg', 0.85);
+	} catch {
+		return null;
+	}
+}
+
+/** Prefer the decoded gallery tile bitmap so open morph has a backdrop on the first frame. */
+export function backdropFromGalleryThumb(postId: string) {
+	if (!postId || typeof document === 'undefined') return null;
+	const tile = document.querySelector(
+		`.gallery .tile[data-post="${CSS.escape(postId)}"]`
+	);
+	if (!(tile instanceof HTMLElement)) return null;
+	const imgs = tile.querySelectorAll('img');
+	for (const img of imgs) {
+		if (!(img instanceof HTMLImageElement)) continue;
+		if (img.naturalWidth < 1 || img.naturalHeight < 1) continue;
+		const painted = backdropFromImage(img, img.naturalWidth, img.naturalHeight);
+		if (painted) return painted;
+	}
+	return null;
+}
