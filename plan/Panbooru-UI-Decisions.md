@@ -88,7 +88,7 @@ Updated 18 October 2026; consolidated after prototype review, after the user con
 - **Enter submits the query when autocomplete is not showing or when no autocomplete item is selected**.
 - Inserting a suggestion edits the query; it does not itself submit. The existing Search-to-update and pending-button-highlight rules apply.
 - The autocomplete dropdown **initially has no suggestion selected**, so Enter submits the typed query unless the owner first selects a suggestion.
-- **Clicking an autocomplete suggestion inserts it with a trailing space without starting a search**, matching keyboard suggestion insertion. This differs from clicking a tag in the viewer, which immediately searches.
+- **Clicking an autocomplete suggestion inserts it with a trailing space without starting a search**, matching keyboard suggestion insertion. This differs from double-clicking a tag in the viewer, which immediately searches.
 - **Escape closes autocomplete and preserves the typed query**. Clicking outside also closes it without discarding the query.
 - Autocomplete suggestions show **category-colored tag names on the left** and **smaller, muted post counts on the right**, matching viewer tag styling.
 - Completion **replaces the tag token at the caret**, preserving other query tags and any **`-` exclusion prefix**. For example, completing `-blue_h` inserts `-blue_hair `, including the trailing space.
@@ -392,7 +392,8 @@ Gestures depend on the target: tags, thumbnails and sidebar destinations have di
 
 | Interaction | Result |
 |---|---|
-| Click a tag | Immediately search for that tag in the current view, replacing the previous query; focus/keep focus in the search input with one trailing space and the caret at the end, ready to type the next tag |
+| Click a tag | Do nothing |
+| Double-click a tag | Immediately search for that tag in the current view, replacing the previous query; focus/keep focus in the search input with one trailing space and the caret at the end, ready to type the next tag |
 | Shift-click a tag | Append the tag to the active query and immediately run the updated search; focus the search input with one trailing space and the caret at the end |
 | Ctrl/Cmd-click a tag | Create a background exploration view for that tag directly below the current view, without switching to it |
 | Middle-click a tag | Create a background exploration view for that tag directly below the current view in the view list, without switching to it |
@@ -418,20 +419,20 @@ Gestures depend on the target: tags, thumbnails and sidebar destinations have di
 - A manually assigned view name **replaces the visible query text** in its sidebar row; no second line of query tags is displayed. The underlying query and search behavior remain unchanged. Custom titles use the same single first-tag-derived text color.
 - View titles stay on a **single line** and truncate with an **ellipsis** when they exceed the available width. A tooltip shows the **full name**.
 - Force Click support is out of scope; double-click remains the inline-rename gesture.
-- **Tag click and Shift-click are explicit immediate-search exceptions** to Search-to-update: both start the resulting query immediately and leave the search input active with a trailing space for entering another tag. Subsequent manual edits still wait for Search or Enter. The convenience trailing space alone is not an unapplied query change and must not highlight the Search button.
+- **Tag double-click and Shift-click are explicit immediate-search exceptions** to Search-to-update: both start the resulting query immediately and leave the search input active with a trailing space for entering another tag. Ordinary single-clicks on tags do nothing. Subsequent manual edits still wait for Search or Enter. The convenience trailing space alone is not an unapplied query change and must not highlight the Search button.
 - Middle-click and Ctrl/Cmd-click on **tags** insert the new background exploration view immediately below the current exploration view, rather than at the end of the list. The current view remains active.
 - When revealing the left sidebar in the viewer, **clearly distinguish views created by the current viewer session** using a border/background treatment separate from the active-view highlight. This creation highlight is visible **only inside the viewer**, never in the gallery. Closing or leaving the viewer clears the session highlight state; reopening a viewer must not restore those marks. The created views themselves remain open. Exact styling is provisional.
 - Background exploration views created from tags use **New search defaults: all ratings, all media types, Newest sorting**, rather than inheriting the current view's filters or sorting.
 - Show an **animated Opened in background toast immediately to the left of the activated tag**, positioned beside that tag and clamped within the viewport when a tag creates a background view, via middle-click or Ctrl/Cmd-click. Use **green text/icon, a green border and a subtle dark-green background**. Show the single-line **Opened in background** message with an **Open button/link that directly activates the newly created view**, with no secondary explanatory text. Animate the toast outward from the tag toward its position on the left. The current view stays active. Exact timing and visual values remain provisional; respect reduced motion.
 - **Shift-clicking a tag preserves the current view's filters and sorting** while appending and immediately searching.
-- **Ordinary clicking a tag resets filters and sorting to New search defaults** (all ratings, all media types, Newest) while replacing and immediately searching. In albums/Favorites, this does not change the collection scope.
+- **Double-clicking a tag resets filters and sorting to New search defaults** (all ratings, all media types, Newest) while replacing and immediately searching. In albums/Favorites, this does not change the collection scope.
 - When the current destination has no exploration-view entry (for example, a pinned album or Favorites), insert the new background view at the top of the exploration-view list. Keep the current destination active.
 
 ### Collection-scoped navigation
 
 - There is **never a tag list in gallery mode**, including exploration, album and Favorites galleries. Tag interactions while viewing a post belong in viewer mode; this does not remove the gallery search input or autocomplete.
 - **Middle/Cmd/Ctrl-clicking a tag while viewing an image in an album or Favorites creates a new remote exploration view** for that tag in the background. It does not create another collection-scoped search.
-- **Ordinary clicking a tag in an album or Favorites viewer replaces and immediately runs the current collection's search**, scoped to that album or Favorites. Focus the search input with one trailing space and the caret at the end, matching exploration searches.
+- **Double-clicking a tag in an album or Favorites viewer replaces and immediately runs the current collection's search**, scoped to that album or Favorites. Focus the search input with one trailing space and the caret at the end, matching exploration searches. Ordinary single-clicks do nothing.
 - **Shift-clicking a tag in an album or Favorites appends it to the search of that current collection view**. The established immediate-search and focused-input/trailing-space behavior still applies.
 - **Shift-clicking Favorites or an album navigation item creates a new collection-scoped entry in the regular exploration-view list and immediately activates it**. This enables multiple independent searches of the same Favorites collection or album. These explicit Shift-click copies are exceptions to ordinary collection navigation, which does not create exploration-list entries.
 - **Middle-clicking an exploration-view, Favorites or album navigation item always closes that item/context**. This applies to the **entire row, including icon, label and nested close-button area**, whether active or inactive; it must close only once. This is distinct from middle-clicking a tag, which creates a background exploration view.

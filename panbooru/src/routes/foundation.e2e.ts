@@ -127,6 +127,9 @@ test('owner can set up, sign in, save Gelbooru credentials, and search', async (
 	await page.locator('.gallery img').first().click();
 	await page.getByRole('button', { name: 'Show tags' }).click();
 	await tags.getByRole('button', { name: 'sunset', exact: true }).click();
+	await expect(page.getByLabel('Tags')).toHaveValue('forest');
+	await expect(page.locator('.viewer')).toBeVisible();
+	await tags.getByRole('button', { name: 'sunset', exact: true }).dblclick();
 	await expect(page.getByLabel('Tags')).toHaveValue('sunset');
 	await expect(page.locator('.gallery img').first()).toBeVisible();
 
