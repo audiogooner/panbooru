@@ -1146,6 +1146,7 @@
 		enterMorphDone = false;
 		veil = 0;
 		chromeIn = false;
+		setTileHidden(post.id, true);
 		morph = {
 			phase: 'enter',
 			from: openOrigin,
