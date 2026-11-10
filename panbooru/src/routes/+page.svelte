@@ -438,7 +438,7 @@
 		const mode = activeView().mode;
 		const postId = activeView().postId;
 		if (mode !== 'viewer' || !postId) return;
-		if (!scrollGalleryToPost(postId, anchorInset)) return;
+		if (!scrollGalleryToPost(postId)) return;
 		const scroller = document.getElementById('scroll');
 		const tile = scroller?.querySelector<HTMLElement>(`[data-post="${CSS.escape(postId)}"]`);
 		if (!scroller || !tile) return;
