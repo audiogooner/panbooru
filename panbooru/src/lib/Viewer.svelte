@@ -1869,7 +1869,7 @@
 
 	.player {
 		position: absolute;
-		z-index: 1;
+		z-index: 2;
 		inset: 0;
 		display: flex;
 		align-items: center;
