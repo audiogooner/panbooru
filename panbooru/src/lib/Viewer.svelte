@@ -2168,19 +2168,26 @@
 		right: 8px;
 		bottom: 8px;
 		width: calc(var(--panel-width) - 8px);
+		overflow: hidden;
 		transform: translateX(calc(var(--panel-width) - var(--view-right)));
 		will-change: transform;
 	}
 
 	.right-scroll {
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
 		height: 100%;
-		overflow: auto;
+		overflow-x: hidden;
+		overflow-y: auto;
 		padding-right: 1px;
 		scrollbar-width: thin;
 	}
 
 	.details,
 	.tags-card {
+		max-width: 100%;
+		min-width: 0;
 		margin-bottom: 8px;
 		padding: 18px;
 		border-radius: 14px;
@@ -2208,6 +2215,13 @@
 		color: #abbfdc;
 		font-size: 12px;
 		text-decoration: none;
+	}
+
+	.tags-card ul,
+	.tags-card li,
+	.tag-group {
+		min-width: 0;
+		max-width: 100%;
 	}
 
 	.tags-card ul {
@@ -2239,17 +2253,21 @@
 		justify-content: space-between;
 		gap: 10px;
 		width: 100%;
+		max-width: 100%;
 		height: auto;
 		padding: 2px 0;
 		border: 0;
 		background: none;
 		line-height: 1.4;
 		text-align: left;
+		white-space: normal;
 	}
 
 	.tag-row span {
+		flex: 1 1 0;
 		min-width: 0;
 		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.tag-row small {
