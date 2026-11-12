@@ -2168,7 +2168,6 @@
 		right: 8px;
 		bottom: 8px;
 		width: calc(var(--panel-width) - 8px);
-		overflow: hidden;
 		transform: translateX(calc(var(--panel-width) - var(--view-right)));
 		will-change: transform;
 	}
@@ -2310,9 +2309,10 @@
 		z-index: 6;
 		top: 0;
 		bottom: 0;
-		left: -7px;
-		width: 8px;
+		left: -10px;
+		width: 16px;
 		cursor: ew-resize;
+		touch-action: none;
 	}
 
 	.zoom-readout {
