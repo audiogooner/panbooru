@@ -46,10 +46,10 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
-		"@mynaui/icons": "^0.4.11",
 		"@node-rs/argon2": "^2.2.2",
 		"better-sqlite3": "^13.0.3",
 		"drizzle-orm": "^0.45.4",
+		"lucide-static": "^1.73.0",
 		"sharp": "^0.35.5",
 		"yazl": "^3.3.1"
 	}

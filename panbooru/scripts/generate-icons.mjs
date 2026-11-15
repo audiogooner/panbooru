@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 /**
- * Rebuild src/lib/icons/paths.ts from @mynaui/icons stroke SVGs.
- * Keeps Panbooru semantic names; maps them to Myna filenames below.
+ * Rebuild src/lib/icons/paths.ts from lucide-static icon nodes.
+ * Keeps Panbooru semantic names; maps them to Lucide filenames below.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(__dirname, '../node_modules/@mynaui/icons/icons');
 const outFile = path.join(__dirname, '../src/lib/icons/paths.ts');
+
+/** @type {Record<string, [string, Record<string, string>][]>} */
+const lucideNodes = require('lucide-static/icon-nodes.json');
 
 /** @type {Record<string, string>} */
 const map = {
@@ -18,17 +22,17 @@ const map = {
 	heart: 'heart',
 	plus: 'plus',
 	x: 'x',
-	sort: 'sort',
-	up: 'arrow-up',
+	sort: 'arrow-down-narrow-wide',
+	up: 'arrow-up-narrow-wide',
 	shuffle: 'shuffle',
 	star: 'star',
 	rating: 'shield-check',
 	image: 'image',
 	film: 'film',
 	play: 'play',
-	animate: 'layers-two',
-	settings: 'cog',
-	sliders: 'config',
+	animate: 'layers-2',
+	settings: 'settings',
+	sliders: 'sliders-horizontal',
 	external: 'external-link',
 	download: 'download',
 	full: 'maximize',
@@ -37,46 +41,47 @@ const map = {
 	right: 'chevron-right',
 	pin: 'pin',
 	saved: 'bookmark',
-	artist: 'pencil',
+	artist: 'brush',
 	character: 'user',
+	pencil: 'pencil',
 	check: 'check',
 	trash: 'trash'
 };
 
 const names = Object.keys(map);
 
-/** @param {string} svg */
-function pathDs(svg) {
-	const matches = [...svg.matchAll(/<path\b[^>]*\bd="([^"]+)"/g)];
-	if (matches.length === 0) {
-		throw new Error('no path elements found');
-	}
-	return matches.map((m) => m[1]);
+/** @param {unknown} value */
+function serialize(value) {
+	return JSON.stringify(value, null, '\t').replace(/\n/g, '\n\t');
+}
+
+const missing = names.filter((alias) => !lucideNodes[map[alias]]);
+if (missing.length) {
+	throw new Error(`Missing Lucide icons: ${missing.map((n) => map[n]).join(', ')}`);
 }
 
 const entries = names.map((alias) => {
-	const file = map[alias];
-	const svg = fs.readFileSync(path.join(root, `${file}.svg`), 'utf8');
-	const ds = pathDs(svg);
-	const list = ds.map((d) => `\t\t'${d.replace(/'/g, "\\'")}'`).join(',\n');
-	return `\t'${alias}': [\n${list}\n\t]`;
+	const nodes = lucideNodes[map[alias]];
+	return `\t${JSON.stringify(alias)}: ${serialize(nodes)}`;
 });
 
-const sources = names.map((n) => `\t'${n}': '${map[n]}'`).join(',\n');
+const sources = names.map((n) => `\t${JSON.stringify(n)}: ${JSON.stringify(map[n])}`).join(',\n');
 
-const out = `/** Semantic icon names → Myna UI path data (@mynaui/icons). Regenerate with \`node scripts/generate-icons.mjs\`. */
+const out = `/** Semantic icon names → Lucide nodes (lucide-static). Regenerate with \`node scripts/generate-icons.mjs\`. */
+export type IconNode = readonly [tag: string, attrs: Record<string, string>];
+
 export const iconNames = [
-${names.map((n) => `\t'${n}'`).join(',\n')}
+${names.map((n) => `\t${JSON.stringify(n)}`).join(',\n')}
 ] as const;
 
 export type IconName = (typeof iconNames)[number];
 
-/** Path \`d\` attributes for each icon (stroke comes from Icon.svelte). */
-export const iconPaths: Record<IconName, readonly string[]> = {
+/** Lucide SVG child nodes for each icon (stroke comes from Icon.svelte). */
+export const iconNodes: Record<IconName, readonly IconNode[]> = {
 ${entries.join(',\n')}
 };
 
-/** Myna filename for each semantic name (documentation / regeneration). */
+/** Lucide filename for each semantic name (documentation / regeneration). */
 export const iconSources: Record<IconName, string> = {
 ${sources}
 };

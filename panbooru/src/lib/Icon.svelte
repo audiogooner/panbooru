@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { iconPaths, type IconName } from '#lib/icons/paths.ts';
+	import { iconNodes, type IconName } from '#lib/icons/paths.ts';
 	import type { SVGAttributes } from 'svelte/elements';
 
 	type Props = Omit<SVGAttributes<SVGSVGElement>, 'class' | 'viewBox'> & {
@@ -24,8 +24,8 @@
 	aria-label={label}
 	role={label ? 'img' : undefined}
 >
-	{#each iconPaths[name] as d (d)}
-		<path {d} />
+	{#each iconNodes[name] as [tag, attrs], index (`${tag}-${index}`)}
+		<svelte:element this={tag} {...attrs} />
 	{/each}
 </svg>
 
@@ -36,7 +36,7 @@
 		flex-shrink: 0;
 		fill: none;
 		stroke: currentColor;
-		stroke-width: 1.5;
+		stroke-width: 2;
 		stroke-linecap: round;
 		stroke-linejoin: round;
 	}

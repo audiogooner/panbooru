@@ -250,7 +250,7 @@
 			event,
 			[
 				{ id: 'open', label: 'Open', icon: 'book-image' },
-				{ id: 'rename', label: 'Rename', icon: 'artist' },
+				{ id: 'rename', label: 'Rename', icon: 'pencil' },
 				{ id: 'cover', label: 'Edit cover', icon: 'image' },
 				{ id: 'pin', label: album.pinned ? 'Unpin' : 'Pin', icon: 'pin' },
 				{ id: 'delete', label: 'Delete', icon: 'trash', danger: true, separator: true }

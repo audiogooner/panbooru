@@ -268,7 +268,7 @@
 			event,
 			[
 				{ id: 'open', label: 'Open', icon: 'search' },
-				{ id: 'rename', label: 'Rename', icon: 'artist' },
+				{ id: 'rename', label: 'Rename', icon: 'pencil' },
 				{ id: 'cover', label: 'Edit cover', icon: 'image' },
 				{ id: 'search', label: 'Type: Search', icon: 'search' },
 				{ id: 'artist', label: 'Type: Artist', icon: 'artist' },
