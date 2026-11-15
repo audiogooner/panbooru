@@ -1,38 +1,9 @@
 <script module lang="ts">
-	export const iconNames = [
-		'search',
-		'book-image',
-		'heart',
-		'plus',
-		'x',
-		'sort',
-		'up',
-		'shuffle',
-		'star',
-		'rating',
-		'image',
-		'film',
-		'play',
-		'animate',
-		'settings',
-		'sliders',
-		'external',
-		'download',
-		'full',
-		'panel',
-		'left',
-		'right',
-		'pin',
-		'saved',
-		'artist',
-		'check',
-		'trash'
-	] as const;
-
-	export type IconName = (typeof iconNames)[number];
+	export { iconNames, type IconName } from '#lib/icons/paths.ts';
 </script>
 
 <script lang="ts">
+	import { iconPaths, type IconName } from '#lib/icons/paths.ts';
 	import type { SVGAttributes } from 'svelte/elements';
 
 	type Props = Omit<SVGAttributes<SVGSVGElement>, 'class' | 'viewBox'> & {
@@ -53,7 +24,9 @@
 	aria-label={label}
 	role={label ? 'img' : undefined}
 >
-	<use href="#{name}" />
+	{#each iconPaths[name] as d (d)}
+		<path {d} />
+	{/each}
 </svg>
 
 <style>
@@ -63,7 +36,7 @@
 		flex-shrink: 0;
 		fill: none;
 		stroke: currentColor;
-		stroke-width: 1.55;
+		stroke-width: 1.5;
 		stroke-linecap: round;
 		stroke-linejoin: round;
 	}
