@@ -25,6 +25,7 @@ export const iconNames = [
 	'pin',
 	'saved',
 	'artist',
+	'character',
 	'check',
 	'trash'
 ] as const;
@@ -92,6 +93,7 @@ export const iconPaths: Record<IconName, readonly string[]> = {
 	artist: [
 		'M18.774 10.221 8.801 20.2a2.73 2.73 0 0 1-1.933.8H3v-3.844c0-.724.288-1.419.8-1.931m5 4.974-5-4.974m0 0 9.983-9.995m0 0 1.426-1.428a2.733 2.733 0 0 1 3.867-.001l1.126 1.127a2.733 2.733 0 0 1 0 3.865l-1.428 1.428M13.783 5.23l4.991 4.991'
 	],
+	character: ['M15 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0m4.5 13c-.475-9.333-14.525-9.333-15 0'],
 	check: [
 		'm6 13.626 1.606 1.722c.886.95 1.329 1.424 1.825 1.574.436.131.9.096 1.315-.1.473-.224.852-.761 1.612-1.836L18 7'
 	],
@@ -127,6 +129,7 @@ export const iconSources: Record<IconName, string> = {
 	pin: 'pin',
 	saved: 'bookmark',
 	artist: 'pencil',
+	character: 'user',
 	check: 'check',
 	trash: 'trash'
 };

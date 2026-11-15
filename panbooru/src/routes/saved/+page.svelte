@@ -272,7 +272,7 @@
 				{ id: 'cover', label: 'Edit cover', icon: 'image' },
 				{ id: 'search', label: 'Type: Search', icon: 'search' },
 				{ id: 'artist', label: 'Type: Artist', icon: 'artist' },
-				{ id: 'character', label: 'Type: Character', icon: 'saved' },
+				{ id: 'character', label: 'Type: Character', icon: 'character' },
 				{ id: 'create-album', label: 'Create album', icon: 'book-image' },
 				{ id: 'delete', label: 'Delete', icon: 'trash', danger: true, separator: true }
 			],

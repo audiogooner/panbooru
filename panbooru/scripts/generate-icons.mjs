@@ -38,6 +38,7 @@ const map = {
 	pin: 'pin',
 	saved: 'bookmark',
 	artist: 'pencil',
+	character: 'user',
 	check: 'check',
 	trash: 'trash'
 };

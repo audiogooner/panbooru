@@ -383,7 +383,10 @@
 	}
 
 	function viewIcon(query: string): IconName {
-		return categoryFor(query) === 'artist' ? 'artist' : 'search';
+		const category = categoryFor(query);
+		if (category === 'artist') return 'artist';
+		if (category === 'character') return 'character';
+		return 'search';
 	}
 
 	function coverSrc(album: SidebarAlbum) {
