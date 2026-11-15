@@ -5,6 +5,7 @@ import type { AppServices } from '#lib/server/auth/dispatch.ts';
 import { jsonError } from '#lib/server/http/json.ts';
 import { canonicalFileUrl } from '#lib/server/library/save.ts';
 import {
+	isAnimatedFile,
 	isVideoFile,
 	maxSourceBytes,
 	recipeFromQuery,
@@ -90,6 +91,7 @@ async function serveDerivative(
 	recipe: RecipeName
 ) {
 	const sourceUrl = derivativeSource(target, recipe);
+	if (!sourceUrl) return null;
 	let identity: string;
 	try {
 		identity = derivativeIdentity(target, sourceUrl);
@@ -109,9 +111,26 @@ async function serveDerivative(
 	}
 }
 
-function derivativeSource(target: MediaTarget, recipe: RecipeName) {
+/** Still preview when it differs from the original and is not itself video/animation. */
+function stillPreviewUrl(target: MediaTarget) {
 	const preview = target.previewUrl.trim();
-	if (preview && (recipe === recipeNames.thumb || isVideoFile(target.fileUrl))) return preview;
+	if (!preview || preview === target.fileUrl) return '';
+	if (isVideoFile(preview) || isAnimatedFile(preview)) return '';
+	return preview;
+}
+
+/**
+ * Thumbnails may flatten a small animated file when no still preview exists.
+ * Display/backdrop never buffer a full GIF/WebP/APNG — use a still preview or fall through.
+ */
+function derivativeSource(target: MediaTarget, recipe: RecipeName): string | null {
+	const still = stillPreviewUrl(target);
+	if (recipe === recipeNames.thumb) {
+		if (still) return still;
+		if (isVideoFile(target.fileUrl)) return null;
+		return target.fileUrl;
+	}
+	if (isVideoFile(target.fileUrl) || isAnimatedFile(target.fileUrl)) return still || null;
 	return target.fileUrl;
 }
 

@@ -5,7 +5,7 @@
 	import type { DragPost } from '#lib/selection.svelte.ts';
 	import { editingText, matchesShortcut } from '#lib/shortcuts.ts';
 	import type { ExplorationPost } from '#lib/navigation.ts';
-	import { playable } from '#lib/playable.ts';
+	import { isAnimatedMedia, playable } from '#lib/playable.ts';
 	import {
 		readPlaybackPreference,
 		savePosition,
@@ -117,7 +117,10 @@
 	const seedBackdrop = untrack(() => {
 		const base = imageSrc || (post.mediaRef ? `/api/media/${post.mediaRef}` : '');
 		if (!base) return backdropFromGalleryThumb(post.id) || '';
-		if (imageSrc) return withRecipe(base, 'thumb');
+		// Library originals and animated remotes use the warm gallery thumb as blur seed.
+		if (imageSrc || (post.kind !== 'video' && isAnimatedMedia(post.mediaType ?? ''))) {
+			return withRecipe(base, 'thumb');
+		}
 		const real = withRecipe(base, 'backdrop');
 		if (backdropUrlWarm(real)) return real;
 		return backdropFromGalleryThumb(post.id) || real;
@@ -214,13 +217,17 @@
 	);
 	const top = $derived(viewportHeight / 2 + zoom.y - (image.height * zoom.scale) / 2);
 	const mediaBase = $derived(imageSrc || `/api/media/${post.mediaRef}`);
+	// GIF/APNG/WebP: skip recipe=display (server buffers the full animation) and use the original.
+	const animatedImage = $derived(post.kind !== 'video' && isAnimatedMedia(post.mediaType ?? ''));
 	const foreground = $derived(
-		imageSrc || (needsOriginal(image, zoom.scale) ? mediaBase : withRecipe(mediaBase, 'display'))
+		imageSrc || animatedImage || needsOriginal(image, zoom.scale)
+			? mediaBase
+			: withRecipe(mediaBase, 'display')
 	);
 	const previewSrc = $derived(withRecipe(mediaBase, 'thumb'));
-	// Library originals only serve thumb derivatives; remote media has recipe=backdrop.
+	// Library originals and animated remotes: thumb (gallery-warm). Still remotes: recipe=backdrop.
 	const blurBackdrop = $derived(
-		imageSrc ? withRecipe(mediaBase, 'thumb') : withRecipe(mediaBase, 'backdrop')
+		imageSrc || animatedImage ? withRecipe(mediaBase, 'thumb') : withRecipe(mediaBase, 'backdrop')
 	);
 
 	// Kick the real backdrop decode immediately so the post-morph swap is a no-op when warm.

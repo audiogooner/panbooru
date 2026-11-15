@@ -15,6 +15,7 @@ export const recipeNames = {
 export type RecipeName = (typeof recipeNames)[keyof typeof recipeNames];
 
 const videoPath = /\.(mp4|webm|mkv|mov|m4v|ogv)$/i;
+const animatedPath = /\.(gif|webp|apng)$/i;
 
 export function recipeFromQuery(value: string | null): RecipeName | null {
 	if (value === 'thumb' || value === 'display' || value === 'backdrop') return recipeNames[value];
@@ -24,6 +25,15 @@ export function recipeFromQuery(value: string | null): RecipeName | null {
 export function isVideoFile(fileUrl: string) {
 	try {
 		return videoPath.test(new URL(fileUrl).pathname);
+	} catch {
+		return false;
+	}
+}
+
+/** Path-based: GIF/APNG/WebP originals must not be buffered for display derivatives. */
+export function isAnimatedFile(fileUrl: string) {
+	try {
+		return animatedPath.test(new URL(fileUrl).pathname);
 	} catch {
 		return false;
 	}

@@ -39,7 +39,8 @@ async function startFixture() {
 				post: [
 					post('wide', '/images/wide.jpg', '/images/wide-preview.jpg', 2000, 1000),
 					post('bad', '/images/bad.jpg', '/images/bad.jpg', 32, 32),
-					post('anim', '/images/anim.gif', '/images/anim.gif', 8, 8),
+					post('anim', '/images/anim.gif', '/images/anim-preview.jpg', 8, 8),
+					post('anim-bare', '/images/anim-bare.gif', '/images/anim-bare.gif', 8, 8),
 					post('clip', '/images/clip.mp4', '/images/preview.jpg', 320, 180)
 				]
 			})
@@ -99,6 +100,8 @@ describe('image derivatives', () => {
 		files.set('/images/wide-preview.jpg', { type: 'image/jpeg', body: widePreview });
 		files.set('/images/bad.jpg', { type: 'image/jpeg', body: Buffer.from('not-an-image') });
 		files.set('/images/anim.gif', { type: 'image/gif', body: animatedGif });
+		files.set('/images/anim-bare.gif', { type: 'image/gif', body: animatedGif });
+		files.set('/images/anim-preview.jpg', { type: 'image/jpeg', body: preview });
 		files.set('/images/clip.mp4', {
 			type: 'video/mp4',
 			body: Buffer.from('video-bytes-0123456789')
@@ -277,9 +280,30 @@ describe('image derivatives', () => {
 		expect(response.headers.get('x-derivative-label')).toBeNull();
 	});
 
-	it('labels an animated still as a static first frame', async () => {
-		const { app, cookie, ref } = await boot();
+	it('builds display for an animated post from its still preview', async () => {
+		const { app, cookie, ref, requests } = await boot();
+		const before = requests.filter((path) => path === '/images/anim.gif').length;
 		const response = await media(app, cookie, ref('anim'), 'display');
+		expect(response.headers.get('content-type')).toContain('image/webp');
+		const meta = await sharp(Buffer.from(await response.arrayBuffer())).metadata();
+		expect(meta.pages ?? 1).toBe(1);
+		expect(meta.width).toBe(80);
+		expect(meta.height).toBe(40);
+		expect(requests.filter((path) => path === '/images/anim.gif')).toHaveLength(before);
+		expect(requests.filter((path) => path === '/images/anim-preview.jpg').length).toBeGreaterThan(0);
+	});
+
+	it('streams the original when an animated post has no still preview', async () => {
+		const { app, cookie, ref } = await boot();
+		const response = await media(app, cookie, ref('anim-bare'), 'display');
+		expect(response.headers.get('content-type')).toContain('image/gif');
+		expect(response.headers.get('x-derivative-label')).toBeNull();
+		expect(Buffer.from(await response.arrayBuffer())).toEqual(animatedGif);
+	});
+
+	it('labels a thumb flattened from an animated file as a static first frame', async () => {
+		const { app, cookie, ref } = await boot();
+		const response = await media(app, cookie, ref('anim-bare'), 'thumb');
 		expect(response.headers.get('content-type')).toContain('image/webp');
 		expect(response.headers.get('x-derivative-label')).toBe('static-preview');
 		const meta = await sharp(Buffer.from(await response.arrayBuffer())).metadata();

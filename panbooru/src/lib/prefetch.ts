@@ -1,4 +1,5 @@
 import type { ExplorationPost } from '#lib/navigation.ts';
+import { isAnimatedMedia } from '#lib/playable.ts';
 import { warmTagMeta } from '#lib/tag-meta.ts';
 import type { Attachment } from 'svelte/attachments';
 
@@ -17,11 +18,11 @@ export function mediaBaseFor(
 	return `/api/media/${post.mediaRef}`;
 }
 
-export function warmPost(mediaRef: string, kind?: string) {
-	warmMedia(`/api/media/${mediaRef}`, kind);
+export function warmPost(mediaRef: string, kind?: string, mediaType?: string) {
+	warmMedia(`/api/media/${mediaRef}`, kind, mediaType);
 }
 
-export function warmMedia(base: string, kind?: string) {
+export function warmMedia(base: string, kind?: string, mediaType?: string) {
 	if (!base) return;
 	if (kind === 'video') {
 		warm(withRecipe(base, base.includes('/api/library/originals/') ? 'thumb' : 'display'));
@@ -29,6 +30,12 @@ export function warmMedia(base: string, kind?: string) {
 		return;
 	}
 	if (base.includes('/api/library/originals/')) {
+		warm(withRecipe(base, 'thumb'));
+		warm(base);
+		return;
+	}
+	// Animated remotes: warm the gallery thumb + original (skip display/backdrop buffering).
+	if (isAnimatedMedia(mediaType ?? '')) {
 		warm(withRecipe(base, 'thumb'));
 		warm(base);
 		return;
@@ -54,7 +61,7 @@ export function neighborPrefetch(
 export function warmExplorationPost(post: ExplorationPost | undefined, library = false) {
 	if (!post) return;
 	warmTagMeta(post.tags);
-	warmMedia(mediaBaseFor(post, library), post.kind);
+	warmMedia(mediaBaseFor(post, library), post.kind, post.mediaType);
 }
 
 function warmNeighbor(neighbor: ExplorationPost | undefined, library = false) {

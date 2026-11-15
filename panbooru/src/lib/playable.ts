@@ -1,8 +1,14 @@
 const playableTypes = new Set(['video/mp4']);
+const animatedImageTypes = new Set(['image/gif', 'image/apng', 'image/webp']);
 
 export function playable(type: string) {
 	const base = type.split(';')[0]?.trim().toLowerCase() ?? '';
 	return playableTypes.has(base);
+}
+
+export function isAnimatedMedia(type: string) {
+	const base = type.split(';')[0]?.trim().toLowerCase() ?? '';
+	return animatedImageTypes.has(base);
 }
 
 export function mediaTypeForPath(pathname: string) {
@@ -12,5 +18,8 @@ export function mediaTypeForPath(pathname: string) {
 	if (path.endsWith('.ogv') || path.endsWith('.ogg')) return 'video/ogg';
 	if (path.endsWith('.mov')) return 'video/quicktime';
 	if (path.endsWith('.mkv')) return 'video/x-matroska';
+	if (path.endsWith('.gif')) return 'image/gif';
+	if (path.endsWith('.apng')) return 'image/apng';
+	if (path.endsWith('.webp')) return 'image/webp';
 	return '';
 }
