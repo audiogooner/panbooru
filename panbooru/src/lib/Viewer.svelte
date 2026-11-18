@@ -23,6 +23,7 @@
 		prefersReducedMotion,
 		readGalleryTileRect
 	} from '#lib/viewer-morph.ts';
+	import { squirclePath, squircleRadius } from '#lib/justify.ts';
 	import {
 		doubleClickZoom,
 		initialScale,
@@ -206,6 +207,11 @@
 	const manual = $derived(manualZoom !== null && manualId === post.id);
 	/** Stay mounted through the close slide, then drop the panel once it is offscreen. */
 	const panelMounted = $derived(tagsOpen || reservedRight > 0);
+	/**
+	 * Lock chrome/panel only while a FLIP is in flight. After enter finishes we keep the morph
+	 * overlay until media paints, but the details panel must still be able to open.
+	 */
+	const morphUiLocked = $derived(morph !== null && !(morph.phase === 'enter' && enterMorphDone));
 	const frameWidth = $derived(Math.max(1, viewportWidth - (manual ? 0 : reservedRight)));
 	const zoom = $derived(
 		manual && manualZoom
@@ -377,12 +383,21 @@
 	 * Animate the morph layer's box (not a non-uniform scale). Scaling a destination-sized
 	 * layer made portrait posts look like a crushed vertical sliver during the flight.
 	 */
+	/**
+	 * Clip the layer with the same squircle the gallery tiles use, never a CSS border-radius, so the
+	 * corners stay squircle from tile to viewer and back. Both keyframe paths share one command
+	 * structure, so the browser interpolates them along with the animated box.
+	 */
 	function playFlip(node: HTMLElement, from: MorphRect, to: MorphRect, phase: MorphPhase) {
+		const fromRadius = phase === 'enter' ? squircleRadius : 0;
+		const toRadius = phase === 'enter' ? 0 : squircleRadius;
+		const fromClip = `path('${squirclePath(from.width, from.height, fromRadius)}')`;
+		const toClip = `path('${squirclePath(to.width, to.height, toRadius)}')`;
 		node.style.left = `${from.left}px`;
 		node.style.top = `${from.top}px`;
 		node.style.width = `${from.width}px`;
 		node.style.height = `${from.height}px`;
-		node.style.borderRadius = phase === 'enter' ? '14px' : '0px';
+		node.style.clipPath = fromClip;
 		return node.animate(
 			[
 				{
@@ -390,14 +405,14 @@
 					top: `${from.top}px`,
 					width: `${from.width}px`,
 					height: `${from.height}px`,
-					borderRadius: phase === 'enter' ? '14px' : '0px'
+					clipPath: fromClip
 				},
 				{
 					left: `${to.left}px`,
 					top: `${to.top}px`,
 					width: `${to.width}px`,
 					height: `${to.height}px`,
-					borderRadius: phase === 'enter' ? '0px' : '14px'
+					clipPath: toClip
 				}
 			],
 			{ duration: MORPH_MS, easing: MORPH_EASE, fill: 'forwards' }
@@ -405,12 +420,15 @@
 	}
 
 	function morphLayer(node: HTMLElement) {
+		// Track morph identity so enter→leave (no null gap) re-runs; untrack post so prop churn
+		// cannot cancel a finished fill:forwards FLIP and replay from the tile box.
 		const flight = morph;
 		if (!flight) return;
+		const postId = untrack(() => post.id);
 		cancelMorphAnim();
-		setTileHidden(post.id, true);
+		setTileHidden(postId, true);
 		// Re-read the live tile box at play time so scroll/layout settled after open still matches.
-		const liveTo = flight.phase === 'leave' ? readGalleryTileRect(post.id) : null;
+		const liveTo = flight.phase === 'leave' ? readGalleryTileRect(postId) : null;
 		const from = flight.from;
 		const to = liveTo ?? flight.to;
 		const anim = playFlip(node, from, to, flight.phase);
@@ -425,20 +443,21 @@
 				morphTimer = window.setTimeout(() => {
 					morphTimer = 0;
 					if (!alive || morph !== flight || !enterMorphDone) return;
-					setTileHidden(post.id, false);
+					setTileHidden(postId, false);
 					morph = null;
 					entering = false;
 					enterMorphDone = false;
 				}, 2500);
 				return;
 			}
-			setTileHidden(post.id, false);
+			setTileHidden(postId, false);
 			morph = null;
 			onclose();
 		});
 		return () => {
 			cancelled = true;
-			if (morphAnim === anim) {
+			// Cancelling a finished fill:forwards animation snaps back to the inline `from` box.
+			if (morphAnim === anim && anim.playState !== 'finished') {
 				anim.cancel();
 				morphAnim = null;
 			}
@@ -717,7 +736,8 @@
 			requestClose();
 			return;
 		}
-		if (morph || closing) return;
+		// Block keys during close / active FLIP; allow details after enter FLIP while media loads.
+		if (closing || (morph !== null && !enterMorphDone)) return;
 		if ((event.key === 'f' || event.key === 'F') && !typing(event)) {
 			event.preventDefault();
 			toggleFullscreen();
@@ -1338,7 +1358,7 @@
 			'panel-open': panelMounted,
 			'image-over-info': manual,
 			'hide-controls': chromeHidden,
-			morphing: morph !== null,
+			morphing: morphUiLocked,
 			closing,
 			'media-hidden': morph !== null || closing || entering,
 			entering,
@@ -1739,7 +1759,7 @@
 		z-index: 5;
 		overflow: hidden;
 		pointer-events: none;
-		will-change: left, top, width, height, border-radius;
+		will-change: left, top, width, height, clip-path;
 		background: #191e25;
 	}
 
