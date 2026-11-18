@@ -22,10 +22,6 @@
 	const instant = $derived(Boolean(ready && shown?.instant));
 	let alive = false;
 
-	function background(url: string) {
-		return `url("${url.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}")`;
-	}
-
 	function fromCache(img: HTMLImageElement) {
 		const entry = performance.getEntriesByName(img.currentSrc || img.src).at(-1);
 		if (!entry || !('decodedBodySize' in entry)) return false;
@@ -60,7 +56,7 @@
 </script>
 
 <div class={['thumb', fit, ready && 'ready', instant && 'instant']}>
-	<div class="preview" style:background-image={background(src)} aria-hidden="true"></div>
+	<img class="preview" {src} alt="" aria-hidden="true" draggable="false" />
 	<img
 		{src}
 		{alt}
@@ -99,10 +95,14 @@
 
 	.preview {
 		position: absolute;
-		inset: -28%;
+		inset: 0;
 		z-index: 1;
-		background-position: center;
-		background-size: cover;
+		width: 100%;
+		height: 100%;
+		max-width: none;
+		object-fit: cover;
+		/* Scale past the clip so blur fringe never composites with the dark tile. */
+		transform: scale(1.28);
 		opacity: 1;
 		filter: blur(20px);
 		pointer-events: none;

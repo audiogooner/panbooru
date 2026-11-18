@@ -121,16 +121,24 @@ function stillPreviewUrl(target: MediaTarget) {
 
 /**
  * Thumbnails may flatten a small animated file when no still preview exists.
- * Display/backdrop never buffer a full GIF/WebP/APNG — use a still preview or fall through.
+ * Display never buffers a full GIF/WebP/APNG — use a still preview or fall through.
+ * Backdrop prefers the same still the gallery thumb used so the open-morph seed
+ * (painted from that thumb) matches recipe=backdrop instead of flipping brighter/darker.
  */
 function derivativeSource(target: MediaTarget, recipe: RecipeName): string | null {
 	const still = stillPreviewUrl(target);
+	const animatedOrVideo = isVideoFile(target.fileUrl) || isAnimatedFile(target.fileUrl);
 	if (recipe === recipeNames.thumb) {
 		if (still) return still;
 		if (isVideoFile(target.fileUrl)) return null;
 		return target.fileUrl;
 	}
-	if (isVideoFile(target.fileUrl) || isAnimatedFile(target.fileUrl)) return still || null;
+	if (recipe === recipeNames.backdrop) {
+		if (still) return still;
+		if (animatedOrVideo) return null;
+		return target.fileUrl;
+	}
+	if (animatedOrVideo) return still || null;
 	return target.fileUrl;
 }
 
