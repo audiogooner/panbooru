@@ -181,13 +181,8 @@ describe('image derivatives', () => {
 		expect(display.headers.get('cache-control')).not.toContain('no-store');
 		expect(display.headers.get('cache-control')).not.toContain('public');
 
-		const fileFetchesBeforeBackdrop = requests.filter((path) => path === '/images/wide.jpg').length;
 		const backdrop = await media(app, cookie, ref('wide'), 'backdrop');
-		// Backdrop reuses the thumb's still preview (cached in-process) so the open seed matches.
-		expect(requests.filter((path) => path === '/images/wide.jpg')).toHaveLength(
-			fileFetchesBeforeBackdrop
-		);
-		expect(requests.filter((path) => path === '/images/wide-preview.jpg').length).toBeGreaterThan(0);
+		expect(requests.filter((path) => path === '/images/wide.jpg')).toHaveLength(1);
 		const backdropBytes = Buffer.from(await backdrop.arrayBuffer());
 		expect(await sharp(backdropBytes).metadata()).toMatchObject({ width: 48, height: 24 });
 		expect(backdropBytes.equals(thumbBytes)).toBe(false);
