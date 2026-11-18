@@ -138,6 +138,60 @@
 			return () => controller.abort();
 		};
 	});
+
+	const VIEW_SCROLL_MS = 150;
+
+	function viewListScrollTarget(scroller: HTMLElement, row: HTMLElement): number | null {
+		const scrollerRect = scroller.getBoundingClientRect();
+		const rowRect = row.getBoundingClientRect();
+		if (rowRect.top >= scrollerRect.top && rowRect.bottom <= scrollerRect.bottom) return null;
+		const current = scroller.scrollTop;
+		if (rowRect.top < scrollerRect.top) return current + (rowRect.top - scrollerRect.top);
+		if (rowRect.bottom > scrollerRect.bottom) return current + (rowRect.bottom - scrollerRect.bottom);
+		return null;
+	}
+
+	function animateViewListScroll(scroller: HTMLElement, target: number, token: { raf: number }) {
+		if (token.raf) cancelAnimationFrame(token.raf);
+		const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		if (reduce) {
+			scroller.scrollTop = target;
+			return;
+		}
+		const start = scroller.scrollTop;
+		const delta = target - start;
+		if (Math.abs(delta) < 0.5) return;
+		const began = performance.now();
+		const easeOut = (t: number) => 1 - (1 - t) ** 2;
+		const step = (now: number) => {
+			const t = Math.min(1, (now - began) / VIEW_SCROLL_MS);
+			scroller.scrollTop = start + delta * easeOut(t);
+			if (t < 1) token.raf = requestAnimationFrame(step);
+			else token.raf = 0;
+		};
+		token.raf = requestAnimationFrame(step);
+	}
+
+	const watchActiveViewScroll = $derived.by((): Attachment<HTMLElement> => {
+		const activeId = navigation.activeId;
+		return (scroller) => {
+			const token = { raf: 0 };
+			let cancelled = false;
+			void (async () => {
+				await tick();
+				if (cancelled || !activeId) return;
+				const row = scroller.querySelector<HTMLElement>(`[data-view="${CSS.escape(activeId)}"]`);
+				if (!row) return;
+				const target = viewListScrollTarget(scroller, row);
+				if (target === null) return;
+				animateViewListScroll(scroller, target, token);
+			})();
+			return () => {
+				cancelled = true;
+				if (token.raf) cancelAnimationFrame(token.raf);
+			};
+		};
+	});
 	const syncTemporaryAlbums = $derived.by((): Attachment<HTMLElement> => {
 		const ids = [...readLibrary().temporary];
 		return () => {
@@ -954,7 +1008,7 @@
 		<Icon name="plus" />
 		New search
 	</button>
-	<div class="view-list" {@attach watchCategories}>
+	<div class="view-list" {@attach watchCategories} {@attach watchActiveViewScroll}>
 		{#each navigation.views as view (view.id)}
 			{@const title = viewTitle(view.query)}
 			<!-- Middle-click and drag sit on the row; the button inside is the keyboard control. -->
