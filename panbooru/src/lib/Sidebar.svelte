@@ -139,7 +139,7 @@
 		};
 	});
 
-	const VIEW_SCROLL_MS = 150;
+	const VIEW_SCROLL_MS = 240;
 
 	function viewListScrollTarget(scroller: HTMLElement, row: HTMLElement): number | null {
 		const scrollerRect = scroller.getBoundingClientRect();
@@ -162,7 +162,7 @@
 		const delta = target - start;
 		if (Math.abs(delta) < 0.5) return;
 		const began = performance.now();
-		const easeOut = (t: number) => 1 - (1 - t) ** 2;
+		const easeOut = (t: number) => 1 - (1 - t) ** 3;
 		const step = (now: number) => {
 			const t = Math.min(1, (now - began) / VIEW_SCROLL_MS);
 			scroller.scrollTop = start + delta * easeOut(t);
