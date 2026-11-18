@@ -136,8 +136,6 @@
 	let chromeIn = $state(!wantsEnter);
 	let morphTimer = 0;
 	let morphAnim: Animation | null = null;
-	/** Enter FLIP finished; keep the overlay up until the real stage has painted. */
-	let enterMorphDone = $state(false);
 	/** Seeded backdrop fades in with the open (starts off so it doesn't pop). */
 	let backdropIn = $state(false);
 	let tagsOpen = $state(false);
@@ -207,11 +205,6 @@
 	const manual = $derived(manualZoom !== null && manualId === post.id);
 	/** Stay mounted through the close slide, then drop the panel once it is offscreen. */
 	const panelMounted = $derived(tagsOpen || reservedRight > 0);
-	/**
-	 * Lock chrome/panel only while a FLIP is in flight. After enter finishes we keep the morph
-	 * overlay until media paints, but the details panel must still be able to open.
-	 */
-	const morphUiLocked = $derived(morph !== null && !(morph.phase === 'enter' && enterMorphDone));
 	const frameWidth = $derived(Math.max(1, viewportWidth - (manual ? 0 : reservedRight)));
 	const zoom = $derived(
 		manual && manualZoom
@@ -437,21 +430,14 @@
 		void anim.finished.then(() => {
 			if (cancelled || !alive || morph !== flight) return;
 			morphAnim = null;
-			if (flight.phase === 'enter') {
-				enterMorphDone = true;
-				// Don't leave the overlay stuck if media never arrives.
-				morphTimer = window.setTimeout(() => {
-					morphTimer = 0;
-					if (!alive || morph !== flight || !enterMorphDone) return;
-					setTileHidden(postId, false);
-					morph = null;
-					entering = false;
-					enterMorphDone = false;
-				}, 2500);
-				return;
-			}
 			setTileHidden(postId, false);
 			morph = null;
+			if (flight.phase === 'enter') {
+				// Hand off to the fitted stage immediately so the panel can push/scale the
+				// preview + throbber while the full media finishes decoding.
+				entering = false;
+				return;
+			}
 			onclose();
 		});
 		return () => {
@@ -469,7 +455,6 @@
 		if (document.fullscreenElement) void document.exitFullscreen();
 		chromeIn = false;
 		entering = false;
-		enterMorphDone = false;
 		if (prefersReducedMotion()) {
 			setTileHidden(post.id, false);
 			onclose();
@@ -736,8 +721,7 @@
 			requestClose();
 			return;
 		}
-		// Block keys during close / active FLIP; allow details after enter FLIP while media loads.
-		if (closing || (morph !== null && !enterMorphDone)) return;
+		if (morph || closing) return;
 		if ((event.key === 'f' || event.key === 'F') && !typing(event)) {
 			event.preventDefault();
 			toggleFullscreen();
@@ -1297,7 +1281,6 @@
 			return;
 		}
 		entering = true;
-		enterMorphDone = false;
 		veil = 0;
 		chromeIn = false;
 		setTileHidden(post.id, true);
@@ -1336,17 +1319,6 @@
 		};
 	});
 
-	// Keep the enter overlay until the fitted stage (or video) is actually showing.
-	$effect(() => {
-		if (!enterMorphDone || closing) return;
-		if (morph?.phase !== 'enter') return;
-		if (loading && !playableVideo) return;
-		if (playableVideo && loadedId !== post.id && !unsupportedVideo) return;
-		setTileHidden(post.id, false);
-		morph = null;
-		entering = false;
-		enterMorphDone = false;
-	});
 </script>
 
 <svelte:window {onkeydown} onpointermove={revealChrome} onfocusin={revealChrome} />
@@ -1358,7 +1330,7 @@
 			'panel-open': panelMounted,
 			'image-over-info': manual,
 			'hide-controls': chromeHidden,
-			morphing: morphUiLocked,
+			morphing: morph !== null,
 			closing,
 			'media-hidden': morph !== null || closing || entering,
 			entering,
