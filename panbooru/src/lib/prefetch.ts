@@ -41,7 +41,7 @@ export function warmMedia(base: string, kind?: string, mediaType?: string) {
 		return;
 	}
 	warm(withRecipe(base, 'display'));
-	warm(withRecipe(base, 'backdrop'));
+	warm(withRecipe(base, 'thumb'));
 }
 
 export function neighborPrefetch(

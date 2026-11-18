@@ -17,8 +17,6 @@
 	import {
 		MORPH_EASE,
 		MORPH_MS,
-		backdropFromGalleryThumb,
-		backdropUrlWarm,
 		type MorphRect,
 		prefersReducedMotion,
 		readGalleryTileRect
@@ -112,19 +110,12 @@
 		typeof window !== 'undefined' &&
 		!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 	/**
-	 * Immediate backdrop for open: prefer a warm recipe=backdrop (exact match), else paint the
-	 * gallery thumb with the same 48px + blur(6) treatment (library posts keep the thumb URL).
+	 * Open-time blur seed. It is the same gallery thumb URL as the final backdrop (`blurBackdrop`),
+	 * so the crossfade between them is pixel-identical and cannot flip brighter or darker.
 	 */
 	const seedBackdrop = untrack(() => {
 		const base = imageSrc || (post.mediaRef ? `/api/media/${post.mediaRef}` : '');
-		if (!base) return backdropFromGalleryThumb(post.id) || '';
-		// Library originals and animated remotes use the warm gallery thumb as blur seed.
-		if (imageSrc || (post.kind !== 'video' && isAnimatedMedia(post.mediaType ?? ''))) {
-			return withRecipe(base, 'thumb');
-		}
-		const real = withRecipe(base, 'backdrop');
-		if (backdropUrlWarm(real)) return real;
-		return backdropFromGalleryThumb(post.id) || real;
+		return base ? withRecipe(base, 'thumb') : '';
 	});
 	let morph = $state<MorphFlight | null>(null);
 	let veil = $state(wantsEnter ? 0 : 1);
@@ -191,6 +182,8 @@
 	let incomingBackdropLoaded = $state(false);
 	/** Stand-in stays opacity 0 + transition none before/while the settled src swaps to the HTTP URL. */
 	let backdropHandedOff = $state(false);
+	/** Most recent backdrop URL whose incoming layer finished loading (not reactive). */
+	let lastReadyBackdrop = '';
 	// Seed a backdrop-v1 look so the field matches the final recipe during open morph.
 	let settledBackdrop = $state(seedBackdrop);
 	let reveal = $state<{ id: string; instant: boolean } | null>(null);
@@ -224,10 +217,8 @@
 			: withRecipe(mediaBase, 'display')
 	);
 	const previewSrc = $derived(withRecipe(mediaBase, 'thumb'));
-	// Library originals and animated remotes: thumb (gallery-warm). Still remotes: recipe=backdrop.
-	const blurBackdrop = $derived(
-		imageSrc || animatedImage ? withRecipe(mediaBase, 'thumb') : withRecipe(mediaBase, 'backdrop')
-	);
+	// Always the gallery thumb: the open seed uses the same bytes, so luminance never shifts.
+	const blurBackdrop = $derived(withRecipe(mediaBase, 'thumb'));
 
 	// Kick the real backdrop decode immediately so the post-morph swap is a no-op when warm.
 	$effect(() => {
@@ -251,7 +242,8 @@
 	const index = $derived(sequence.findIndex((item) => item.id === post.id));
 	const loading = $derived(!unsupportedVideo && loadedId !== post.id);
 	/** Morph finished and foreground ready; incoming decode is tracked separately. */
-	const backdropStageReady = $derived(!loading && !entering && morph?.phase !== 'enter');
+	// Thumb-sized, so it follows the current post as soon as it decodes, not the full foreground.
+	const backdropStageReady = $derived(!entering && morph?.phase !== 'enter');
 	const backdropCrossfadeReady = $derived(backdropStageReady && incomingBackdropLoaded);
 	// Keep the thumb under the foreground until decode + paint, then dismiss for single-.full locators.
 	const showPreview = $derived(previewSrc !== foreground && previewCleared !== post.id);
@@ -887,11 +879,17 @@
 	}
 
 	function watchIncomingBackdrop(img: HTMLImageElement) {
-		void blurBackdrop;
+		const url = blurBackdrop;
+		// Navigating away from a fully loaded backdrop: park it under the fading incoming layer so the
+		// field stays on the last loaded image (matching the held foreground), never an older settled one.
+		if (lastReadyBackdrop && lastReadyBackdrop !== url) settledBackdrop = lastReadyBackdrop;
 		incomingBackdropLoaded = false;
 		backdropHandedOff = false;
 		const mark = () => {
-			if (img.complete && img.naturalWidth > 0) incomingBackdropLoaded = true;
+			if (img.complete && img.naturalWidth > 0) {
+				incomingBackdropLoaded = true;
+				lastReadyBackdrop = url;
+			}
 		};
 		mark();
 		img.addEventListener('load', mark);
